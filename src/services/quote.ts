@@ -55,6 +55,8 @@ const QUOTE_COLLECTION = "quotes";
 const DEFAULT_SHIPPING_COST = 200;
 const FREE_SHIPPING_THRESHOLD = 5000;
 const DEFAULT_EXPIRY_DAYS = 7;
+const MAX_QUANTITY_GRAMS = 100000; // 100kg max per item
+const MAX_TOTAL_AMOUNT = 10000000; // 10M THB max total
 
 const PRICE_PER_GRAM: Record<QuoteGrade, number> = {
   ceremonial: 0.5,
@@ -115,10 +117,21 @@ export class QuoteService {
     const subtotal = roundMoney(
       calculatedItems.reduce((sum, item) => sum + item.subtotal, 0)
     );
+    
+    // Overflow protection
+    if (subtotal > MAX_TOTAL_AMOUNT) {
+      throw new Error(`Subtotal exceeds maximum of ${MAX_TOTAL_AMOUNT} THB`);
+    }
+    
     const discountAmount = roundMoney(subtotal * (sanitizedDiscount / 100));
     const afterDiscount = roundMoney(subtotal - discountAmount);
     const shippingCost = afterDiscount >= FREE_SHIPPING_THRESHOLD ? 0 : DEFAULT_SHIPPING_COST;
     const totalAmount = roundMoney(afterDiscount + shippingCost);
+    
+    // Overflow protection for total
+    if (totalAmount > MAX_TOTAL_AMOUNT) {
+      throw new Error(`Total amount exceeds maximum of ${MAX_TOTAL_AMOUNT} THB`);
+    }
 
     return {
       items: calculatedItems,
@@ -220,6 +233,9 @@ export class QuoteService {
     if (!Number.isFinite(item.quantityGrams) || item.quantityGrams <= 0) {
       throw new Error("quantityGrams must be a positive number");
     }
+    if (item.quantityGrams > MAX_QUANTITY_GRAMS) {
+      throw new Error(`quantityGrams exceeds maximum of ${MAX_QUANTITY_GRAMS}g`);
+    }
 
     const unitPricePerGram = PRICE_PER_GRAM[item.grade];
     if (unitPricePerGram === undefined) {
@@ -227,6 +243,12 @@ export class QuoteService {
     }
 
     const subtotal = roundMoney(unitPricePerGram * item.quantityGrams);
+    
+    // Overflow protection
+    if (subtotal > MAX_TOTAL_AMOUNT) {
+      throw new Error("Subtotal exceeds maximum allowed amount");
+    }
+
     return {
       productId: item.productId.trim(),
       productName: item.productName.trim(),

@@ -34,6 +34,13 @@ async function setupFsmIndexes() {
     await db.collection("quotes").createIndex({ status: 1 });
     await db.collection("quotes").createIndex({ expiresAt: 1 });
 
+    await db.createCollection("fsm_transitions").catch(() => {});
+    await db.collection("fsm_transitions").createIndex({ leadId: 1 });
+    await db.collection("fsm_transitions").createIndex({ leadId: 1, createdAt: -1 });
+    await db.collection("fsm_transitions").createIndex({ lineUserId: 1 });
+    await db.collection("fsm_transitions").createIndex({ fromState: 1, toState: 1 });
+    await db.collection("fsm_transitions").createIndex({ createdAt: -1 });
+
     console.log("✅ FSM indexes created successfully");
   } finally {
     await client.close();

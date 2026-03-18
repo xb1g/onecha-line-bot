@@ -209,16 +209,32 @@ function extractRequestedDiscount(
   message: string
 ): number {
   const directValue = readNumber(data, ["requestedDiscountPercentage", "requestedDiscount", "discountPercentage"]);
-  if (directValue > 0) {
-    return directValue;
+  if (directValue !== 0) {
+    // Sanitize: clamp to [0, 100] range, reject negative
+    return sanitizeDiscount(directValue);
   }
 
   const percentMatch = message.match(/(\d+(?:\.\d+)?)\s*%/);
   if (percentMatch) {
-    return Number(percentMatch[1]);
+    const parsed = Number(percentMatch[1]);
+    return sanitizeDiscount(parsed);
   }
 
   return 0;
+}
+
+/**
+ * Sanitize discount value: clamp to [0, 100] range.
+ * Reject negative values (security: prevents infinite/free quotes).
+ */
+function sanitizeDiscount(value: number): number {
+  if (value < 0) {
+    return 0;
+  }
+  if (value > 100) {
+    return 100;
+  }
+  return value;
 }
 
 function extractReason(

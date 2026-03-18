@@ -1,8 +1,10 @@
 import type { LeadDocument, LeadState } from "../types/lead";
 import { isTerminalState, FSM_STATES } from "./states";
+import { applyAutoPilot } from "./auto-pilot";
 import { leadService } from "../services/lead";
 import { handleLeadMessage } from "../handlers/lead";
 import { handleQuoteMessage } from "../handlers/quote";
+import { logger } from "../lib/logger";
 
 export interface FSMRouterResult {
   success: boolean;
@@ -25,12 +27,42 @@ export async function routeMessage(
 
     const stateDefinition = FSM_STATES[lead.state];
     if (!stateDefinition) {
+      logger.error("Unknown lead state in FSM router", {
+        userId: lineUserId,
+        leadId: lead._id?.toString(),
+        state: lead.state,
+      });
       return {
         success: false,
         error: `Unknown lead state: ${lead.state}`,
         replyMessage: "ขออภัย ระบบยังไม่รองรับสถานะนี้ครับ",
       };
     }
+
+    // Check auto-pilot rules first
+    const autoPilotResult = applyAutoPilot(lead.state, message, {
+      userId: lineUserId,
+      leadId: lead._id?.toString(),
+    });
+
+    if (autoPilotResult.handled) {
+      // If auto-pilot suggests a transition, apply it
+      if (autoPilotResult.newState && autoPilotResult.action === "escalate") {
+        await leadService.transitionLead(lineUserId, lead.state, autoPilotResult.newState);
+        await leadService.updateLead(lineUserId, {
+          escalatedReason: "auto-pilot-human-request",
+          escalatedAt: new Date(),
+        });
+      }
+
+      return {
+        success: true,
+        newState: autoPilotResult.newState ?? lead.state,
+        replyMessage: autoPilotResult.replyMessage,
+      };
+    }
+
+    // Continue with normal state handling...
 
     if (lead.state === "LEAD_CAPTURE" || lead.state === "QUALIFY_BULK_INTENT" || lead.state === "PRODUCT_DISCOVERY") {
       const leadResult = await handleLeadMessage(lead, message);

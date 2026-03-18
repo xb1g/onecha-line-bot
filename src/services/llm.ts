@@ -4,6 +4,9 @@ import {
   PRODUCT_DISCOVERY_PROMPT,
   QUALIFICATION_PROMPT,
 } from "../prompts/lead-capture";
+import { logger } from "../lib/logger";
+import { consumeToken, getRateLimitKey } from "../lib/rate-limiter";
+import { validateExtractionResult, hasHallucination } from "../lib/llm-validation";
 
 export type ExtractionSchemaType =
   | "lead_capture"
@@ -38,7 +41,30 @@ export async function extractIntent(
   schema: ExtractionSchemaType,
   context?: ExtractionRequestContext
 ): Promise<LLMExtractionResult> {
+  const userId = context?.lineUserId || "anonymous";
+  const rateLimitKey = getRateLimitKey(userId, schema);
+  const rateLimitStatus = consumeToken(rateLimitKey);
+
+  if (!rateLimitStatus.allowed) {
+    logger.warn("OpenAI rate limit exceeded, using regex fallback", {
+      leadId: context?.leadId,
+      userId,
+      schema,
+      resetAt: rateLimitStatus.resetAt.toISOString(),
+    });
+    return fallbackExtraction(
+      message,
+      schema,
+      `Rate limit exceeded. Please try again after ${rateLimitStatus.resetAt.toLocaleTimeString()}`
+    );
+  }
+
   if (!OPENAI_API_KEY) {
+    logger.warn("OPENAI_API_KEY not configured, using regex fallback", {
+      leadId: context?.leadId,
+      userId,
+      schema,
+    });
     return fallbackExtraction(message, schema, "OPENAI_API_KEY is not configured");
   }
 
@@ -65,28 +91,60 @@ export async function extractIntent(
 
     if (!response.ok) {
       const errorText = await response.text();
-      return {
-        success: false,
-        error: `OpenAI request failed (${response.status}): ${errorText || response.statusText}`,
-      };
+      logger.warn("OpenAI request failed, using fallback", {
+        leadId: context?.leadId,
+        userId,
+        schema,
+        status: response.status,
+        error: errorText,
+      });
+      return fallbackExtraction(message, schema, `OpenAI request failed (${response.status}): ${errorText || response.statusText}`);
     }
 
     const payload = (await response.json()) as OpenAIChatCompletionResponse;
     const content = payload.choices?.[0]?.message?.content?.trim();
 
     if (!content) {
-      return {
-        success: false,
-        error: "Empty response from OpenAI",
-      };
+      logger.warn("Empty response from OpenAI, using fallback", {
+        leadId: context?.leadId,
+        userId,
+        schema,
+      });
+      return fallbackExtraction(message, schema, "Empty response from OpenAI");
     }
 
     const parsed = parseJsonObject(content);
     if (!parsed.success) {
+      logger.warn("Failed to parse LLM JSON, using fallback", {
+        leadId: context?.leadId,
+        userId,
+        schema,
+        error: parsed.error,
+      });
       return fallbackExtraction(message, schema, parsed.error);
     }
 
-    const normalized = normalizeExtractionResult(parsed.data, schema);
+    // Validate against schema to catch hallucination
+    const validation = validateExtractionResult(parsed.data, schema);
+    if (hasHallucination(parsed.data, schema)) {
+      logger.warn("LLM hallucination detected, using sanitized result", {
+        leadId: context?.leadId,
+        userId,
+        schema,
+        errors: validation.errors,
+      });
+    }
+
+    const normalized = normalizeExtractionResult(validation.sanitized, schema);
+
+    logger.debug("LLM extraction successful", {
+      leadId: context?.leadId,
+      userId,
+      schema,
+      confidence: normalized.confidence,
+      remaining: rateLimitStatus.remaining,
+    });
+
     return {
       success: true,
       data: normalized.data,
@@ -95,8 +153,22 @@ export async function extractIntent(
       clarificationQuestions: normalized.clarificationQuestions,
     };
   } catch (error) {
-    const fallbackError = error instanceof Error ? error.message : "Unknown LLM error";
-    return fallbackExtraction(message, schema, fallbackError);
+    const errorMsg = error instanceof Error ? error.message : "Unknown LLM error";
+    if (error instanceof Error && error.name === "AbortError") {
+      logger.warn("OpenAI request timeout, using fallback", {
+        leadId: context?.leadId,
+        userId,
+        schema,
+        timeout: OPENAI_TIMEOUT_MS,
+      });
+    } else {
+      logger.error("LLM extraction error, using fallback", {
+        leadId: context?.leadId,
+        userId,
+        schema,
+      }, error instanceof Error ? error : undefined);
+    }
+    return fallbackExtraction(message, schema, errorMsg);
   }
 }
 

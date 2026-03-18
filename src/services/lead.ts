@@ -1,38 +1,9 @@
 import { ObjectId } from "mongodb";
 import { getCollection } from "../lib/mongodb";
-
-export type LeadState =
-  | "LEAD_CAPTURE"
-  | "QUALIFY_BULK_INTENT"
-  | "PRODUCT_DISCOVERY"
-  | "QUOTE_GENERATION"
-  | "NEGOTIATION"
-  | "ORDER_CONFIRMATION"
-  | "PAYMENT_PENDING"
-  | "ESCALATION"
-  | "RETENTION_LOOP"
-  | "CANCELLED"
-  | "FAILED";
-
-export interface LeadDocument {
-  _id?: ObjectId;
-  lineUserId: string;
-  state: LeadState;
-  cafeName?: string;
-  location?: string;
-  monthlyUsageGrams?: number;
-  priceSensitivity?: "low" | "medium" | "high";
-  timeline?: string;
-  interestedGrades?: Array<"ceremonial" | "premium" | "cafe" | "culinary">;
-  requestedQuantityGrams?: number;
-  activeQuoteId?: ObjectId;
-  escalatedReason?: string;
-  escalatedAt?: Date;
-  handledBy?: string;
-  createdAt: Date;
-  updatedAt: Date;
-  lastMessageAt?: Date;
-}
+import { logger } from "../lib/logger";
+import { logTransition } from "../lib/transition-logger";
+import { VALID_TRANSITIONS } from "../fsm/states";
+import type { LeadState, LeadDocument } from "../types/lead";
 
 export interface LeadUpdateInput {
   cafeName?: string;
@@ -50,20 +21,6 @@ export interface LeadUpdateInput {
 }
 
 const LEAD_COLLECTION = "leads";
-
-const VALID_TRANSITIONS: Record<LeadState, LeadState[]> = {
-  LEAD_CAPTURE: ["QUALIFY_BULK_INTENT", "PRODUCT_DISCOVERY", "FAILED"],
-  QUALIFY_BULK_INTENT: ["PRODUCT_DISCOVERY", "QUOTE_GENERATION", "RETENTION_LOOP", "FAILED"],
-  PRODUCT_DISCOVERY: ["QUOTE_GENERATION", "RETENTION_LOOP", "FAILED"],
-  QUOTE_GENERATION: ["NEGOTIATION", "ORDER_CONFIRMATION", "RETENTION_LOOP", "FAILED"],
-  NEGOTIATION: ["ORDER_CONFIRMATION", "ESCALATION", "FAILED", "CANCELLED"],
-  ORDER_CONFIRMATION: ["PAYMENT_PENDING", "CANCELLED", "ESCALATION"],
-  PAYMENT_PENDING: ["ESCALATION", "CANCELLED", "RETENTION_LOOP"],
-  ESCALATION: ["ORDER_CONFIRMATION", "CANCELLED", "FAILED"],
-  RETENTION_LOOP: ["QUOTE_GENERATION", "CANCELLED", "FAILED"],
-  CANCELLED: [],
-  FAILED: [],
-};
 
 export class LeadService {
   async getOrCreateLead(lineUserId: string): Promise<LeadDocument> {
@@ -157,14 +114,28 @@ export class LeadService {
     const lead = await collection.findOne({ lineUserId });
 
     if (!lead) {
+      logger.error("Lead not found for transition", { userId: lineUserId, fromState, toState });
       throw new Error(`Lead not found for LINE user ${lineUserId}`);
     }
 
     if (lead.state !== fromState) {
+      logger.warn("Invalid state transition - current state mismatch", {
+        leadId: lead._id?.toString(),
+        userId: lineUserId,
+        expectedState: fromState,
+        actualState: lead.state,
+      });
       throw new Error(`Invalid state transition: expected ${fromState}, got ${lead.state}`);
     }
 
     if (!VALID_TRANSITIONS[fromState].includes(toState)) {
+      logger.error("Invalid state transition - not in allowed list", {
+        leadId: lead._id?.toString(),
+        userId: lineUserId,
+        fromState,
+        toState,
+        allowedTransitions: VALID_TRANSITIONS[fromState],
+      });
       throw new Error(`Invalid state transition from ${fromState} to ${toState}`);
     }
 
@@ -179,6 +150,24 @@ export class LeadService {
         },
       }
     );
+
+    logger.info("FSM state transition successful", {
+      leadId: lead._id?.toString(),
+      userId: lineUserId,
+      fromState,
+      toState,
+    });
+
+    // Log transition to MongoDB for analytics
+    if (lead._id) {
+      await logTransition({
+        leadId: lead._id,
+        lineUserId,
+        fromState,
+        toState,
+        trigger: "manual",
+      });
+    }
 
     const updated = await collection.findOne({ lineUserId });
     if (!updated) {

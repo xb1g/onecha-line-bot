@@ -1,0 +1,13 @@
+[install]
+cache = true
+exact = true
+
+[install.lockfile]
+print = "yarn"
+
+[run]
+# Bun's built-in TypeScript support means we don't need tsx
+cwd = "."
+
+[test]
+coverage = false

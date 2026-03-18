@@ -1,6 +1,6 @@
 # Onecha LINE Bot
 
-LINE Messaging Bot for Onecha order fulfillment operations.
+LINE Messaging Bot for Onecha order fulfillment operations - deployed on **Vercel** using **Bun**.
 
 ## Features
 
@@ -14,8 +14,9 @@ LINE Messaging Bot for Onecha order fulfillment operations.
 
 ```
 ┌─────────────────┐     ┌─────────────────┐
-│   LINE API      │────▶│  onecha-line-bot│
-└─────────────────┘     └────────┬────────┘
+│   LINE API      │────▶│  Vercel Serverless
+└─────────────────┘     │  Functions      │
+                        └────────┬────────┘
                                  │
                                  ▼
                         ┌────────────────┐
@@ -32,40 +33,45 @@ LINE Messaging Bot for Onecha order fulfillment operations.
 
 ## Setup
 
+### Prerequisites
+
+- [Bun](https://bun.sh) installed: `curl -fsSL https://bun.sh/install | bash`
+
 ### 1. Install Dependencies
 
 ```bash
-npm install
+bun install
 ```
 
 ### 2. Configure Environment
 
-Copy `.env.example` to `.env` and fill in:
+Create a `.env.local` file:
 
 ```env
 LINE_CHANNEL_ACCESS_TOKEN=your_token
 LINE_CHANNEL_SECRET=your_secret
 LINE_ADMIN_GROUP_ID=your_group_id
 LINE_ADMIN_USER_IDS=user_id_1,user_id_2
-MONGODB_URI=mongodb://localhost:27017/onecha
+MONGODB_URI=mongodb+srv://...
+CRON_SECRET=your_secure_random_string
 ```
 
 ### 3. Setup MongoDB Indexes
 
 ```bash
-npm run setup-indexes
+bun run setup-indexes
 ```
 
 ### 4. Run Development Server
 
 ```bash
-npm run dev
+vercel dev
 ```
 
 ### 5. Configure LINE Webhook
 
 In LINE Developers Console:
-- Webhook URL: `https://your-domain.com/api/webhook`
+- Webhook URL: `https://your-domain.vercel.app/api/webhook`
 - Enable webhook
 
 ## API Endpoints
@@ -73,8 +79,8 @@ In LINE Developers Console:
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/webhook` | POST | LINE webhook receiver |
-| `/api/cron/daily-digest` | GET | Trigger daily digest |
-| `/api/cron/weekly-summary` | GET | Trigger weekly summary |
+| `/api/cron/daily-digest` | GET | Trigger daily digest (cron) |
+| `/api/cron/weekly-summary` | GET | Trigger weekly summary (cron) |
 | `/health` | GET | Health check |
 
 ## Bot Commands
@@ -88,28 +94,30 @@ Type "วันชา" or "onecha" in LINE to open the command menu:
 
 ## Deployment
 
-### Vercel
+### Deploy to Vercel
 
 ```bash
-vercel deploy
+# Install Vercel CLI if not already installed
+bun add -d vercel
+
+# Login to Vercel
+bunx vercel login
+
+# Deploy
+bunx vercel
+
+# Deploy to production
+bunx vercel --prod
 ```
 
-### Railway
-
+Or use the script:
 ```bash
-railway login
-railway init
-railway up
+bun run deploy
 ```
 
-### Docker
+### Environment Variables on Vercel
 
-```bash
-docker build -t onecha-line-bot .
-docker run -p 3001:3001 onecha-line-bot
-```
-
-## Environment Variables
+Set these in Vercel Dashboard → Project Settings → Environment Variables:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -118,8 +126,25 @@ docker run -p 3001:3001 onecha-line-bot
 | `LINE_ADMIN_GROUP_ID` | No | Admin group ID (auto-set on join) |
 | `LINE_ADMIN_USER_IDS` | No | Comma-separated admin user IDs |
 | `MONGODB_URI` | Yes | MongoDB connection string |
-| `PORT` | No | Server port (default: 3001) |
-| `CRON_SECRET` | No | Secret for cron endpoints |
+| `CRON_SECRET` | Yes | Secret for cron endpoints |
+
+## Cron Job Setup
+
+Since Vercel's cron jobs require a paid plan, use an external scheduler like [cron-job.org](https://cron-job.org) (free):
+
+### Daily Digest (9:00 AM Thailand)
+- **URL**: `https://your-domain.vercel.app/api/cron/daily-digest`
+- **Method**: GET
+- **Auth**: Bearer token (your `CRON_SECRET`)
+- **Schedule**: `0 9 * * *` (9:00 AM daily)
+- **Timezone**: Asia/Bangkok
+
+### Weekly Summary (Monday 9:00 AM Thailand)
+- **URL**: `https://your-domain.vercel.app/api/cron/weekly-summary`
+- **Method**: GET
+- **Auth**: Bearer token (your `CRON_SECRET`)
+- **Schedule**: `0 9 * * 1` (9:00 AM Monday)
+- **Timezone**: Asia/Bangkok
 
 ## Shared MongoDB Collections
 

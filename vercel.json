@@ -1,0 +1,31 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/**/*.ts",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/webhook",
+      "dest": "/api/webhook/index.ts"
+    },
+    {
+      "src": "/api/cron/daily-digest",
+      "dest": "/api/cron/daily-digest.ts"
+    },
+    {
+      "src": "/api/cron/weekly-summary",
+      "dest": "/api/cron/weekly-summary.ts"
+    },
+    {
+      "src": "/health",
+      "dest": "/api/health.ts"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/api/$1"
+    }
+  ]
+}

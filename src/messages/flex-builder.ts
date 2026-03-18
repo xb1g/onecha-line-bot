@@ -669,6 +669,13 @@ function createStatRow(label: string, value: string, valueColor = COLORS.primary
   };
 }
 
+    ],
+    paddingAll: "lg",
+      },
+    },
+  };
+}
+
 function formatDateThai(date: Date): string {
   const days = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"];
   const months = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];

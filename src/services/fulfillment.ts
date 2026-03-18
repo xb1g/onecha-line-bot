@@ -240,14 +240,10 @@ export class FulfillmentService {
       .find({
         status: "processing",
         acceptedAt: { $lt: threeDaysAgo },
-        $or: [
-          { lastReminderSent: { $exists: false } },
-          { lastReminderSent: null },
-        ],
       })
       .sort({ acceptedAt: 1 })
       .toArray();
-    return orders;
+    return orders.filter((order) => !order.lastReminderSent);
   }
 
   /**

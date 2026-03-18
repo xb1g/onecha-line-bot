@@ -4,7 +4,13 @@
 
 import axios from "axios";
 import { getCollection } from "../lib/mongodb";
-import { OrderDocument, CustomerDocument, WeeklyStats } from "../types/mongodb";
+import {
+  OrderDocument,
+  CustomerDocument,
+  WeeklyStats,
+  LineGroupDocument,
+  LineGroupRole,
+} from "../types/mongodb";
 import {
   FlexMessage,
   buildDailyDigestMessage,
@@ -16,7 +22,7 @@ import { fulfillmentService } from "./fulfillment";
 export class LineClient {
   private channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   private channelSecret = process.env.LINE_CHANNEL_SECRET;
-  private adminGroupId = process.env.LINE_ADMIN_GROUP_ID;
+  private configuredAdminGroupIds = parseAdminGroupIds();
 
   /**
    * Send a Flex Message to a LINE user or group.
@@ -115,12 +121,12 @@ export class LineClient {
       return { success: true, orderCount: 0 };
     }
 
-    const groupId = await this.getAdminGroupId();
-    if (!groupId) {
+    const groupIds = await this.getAdminGroupIds();
+    if (groupIds.length === 0) {
       return {
         success: false,
         orderCount: 0,
-        error: "Admin group ID not configured. Add bot to a group first.",
+        error: "Admin group IDs not configured. Add the IDs to LINE_ADMIN_GROUP_IDS or let the bot join those groups.",
       };
     }
 
@@ -134,9 +140,9 @@ export class LineClient {
     }
 
     const message = buildDailyDigestMessage(orders, new Date(), customers);
-    const success = await this.sendFlexMessage(groupId, message);
+    const delivery = await this.sendFlexMessageToMany(groupIds, message);
 
-    if (success) {
+    if (delivery.success) {
       await botState.updateOne(
         { key: "last_daily_digest" },
         { $set: { key: "last_daily_digest", value: today, updatedAt: new Date() } },
@@ -144,16 +150,20 @@ export class LineClient {
       );
     }
 
-    return { success, orderCount: orders.length };
+    return {
+      success: delivery.success,
+      orderCount: orders.length,
+      error: delivery.error,
+    };
   }
 
   /**
    * Send a reminder for an unshipped order.
    */
   async sendReminder(order: OrderDocument): Promise<boolean> {
-    const groupId = await this.getAdminGroupId();
-    if (!groupId) {
-      console.error("Admin group ID not configured");
+    const groupIds = await this.getAdminGroupIds();
+    if (groupIds.length === 0) {
+      console.error("Admin group IDs not configured");
       return false;
     }
 
@@ -163,7 +173,8 @@ export class LineClient {
 
     const customer = await fulfillmentService.getCustomerForOrder(order);
     const message = buildReminderMessage(order, customer, daysSincePaid);
-    return await this.sendFlexMessage(groupId, message);
+    const delivery = await this.sendFlexMessageToMany(groupIds, message);
+    return delivery.success;
   }
 
   /**
@@ -179,16 +190,16 @@ export class LineClient {
       return { success: true };
     }
 
-    const groupId = await this.getAdminGroupId();
-    if (!groupId) {
-      return { success: false, error: "Admin group ID not configured" };
+    const groupIds = await this.getAdminGroupIds();
+    if (groupIds.length === 0) {
+      return { success: false, error: "Admin group IDs not configured" };
     }
 
     const stats = await fulfillmentService.getWeeklyStats();
     const message = buildWeeklySummaryMessage(stats);
-    const success = await this.sendFlexMessage(groupId, message);
+    const delivery = await this.sendFlexMessageToMany(groupIds, message);
 
-    if (success) {
+    if (delivery.success) {
       await botState.updateOne(
         { key: "last_weekly_summary" },
         { $set: { key: "last_weekly_summary", value: thisWeek, updatedAt: new Date() } },
@@ -196,35 +207,128 @@ export class LineClient {
       );
     }
 
-    return { success };
+    return {
+      success: delivery.success,
+      error: delivery.error,
+    };
   }
 
   /**
-   * Get the admin group ID from database or env.
+   * Upsert a group record and return its effective role.
    */
-  async getAdminGroupId(): Promise<string | null> {
-    if (this.adminGroupId) {
-      return this.adminGroupId;
-    }
+  async registerGroup(groupId: string): Promise<LineGroupRole> {
+    const role = this.getConfiguredRole(groupId);
+    const groups = await getCollection<LineGroupDocument>("line_groups");
+    const now = new Date();
 
-    const botState = await getCollection("bot_state");
-    const groupState = await botState.findOne({ key: "admin_group_id" });
-    return groupState?.value || null;
-  }
-
-  /**
-   * Save the admin group ID (called when bot joins a group).
-   */
-  async saveAdminGroupId(groupId: string): Promise<void> {
-    const botState = await getCollection("bot_state");
-    await botState.updateOne(
-      { key: "admin_group_id" },
-      { $set: { key: "admin_group_id", value: groupId, updatedAt: new Date() } },
+    await groups.updateOne(
+      { groupId },
+      {
+        $set: {
+          groupId,
+          role,
+          sourceType: "group",
+          updatedAt: now,
+        },
+        $setOnInsert: {
+          joinedAt: now,
+        },
+      },
       { upsert: true }
     );
-    this.adminGroupId = groupId;
-    console.log(`Admin group ID saved: ${groupId}`);
+
+    return role;
   }
+
+  /**
+   * Get the role for a group ID.
+   */
+  async getGroupRole(groupId: string): Promise<LineGroupRole> {
+    const configuredRole = this.getConfiguredRole(groupId);
+    const groups = await getCollection<LineGroupDocument>("line_groups");
+    const group = await groups.findOne({ groupId });
+
+    if (!group) {
+      return configuredRole;
+    }
+
+    if (group.role !== configuredRole) {
+      await this.registerGroup(groupId);
+      return configuredRole;
+    }
+
+    return group.role;
+  }
+
+  /**
+   * Get all configured/persisted admin group IDs.
+   */
+  async getAdminGroupIds(): Promise<string[]> {
+    await this.migrateLegacyAdminGroup();
+
+    const groups = await getCollection<LineGroupDocument>("line_groups");
+    const storedAdminGroupIds = await groups.distinct("groupId", { role: "admin" });
+
+    return Array.from(new Set([...this.configuredAdminGroupIds, ...storedAdminGroupIds]));
+  }
+
+  private getConfiguredRole(groupId: string): LineGroupRole {
+    return this.configuredAdminGroupIds.includes(groupId) ? "admin" : "customer";
+  }
+
+  private async sendFlexMessageToMany(
+    groupIds: string[],
+    flexMessage: FlexMessage
+  ): Promise<{ success: boolean; error?: string }> {
+    const results = await Promise.all(
+      groupIds.map(async (groupId) => ({
+        groupId,
+        success: await this.sendFlexMessage(groupId, flexMessage),
+      }))
+    );
+
+    const failed = results.filter((result) => !result.success).map((result) => result.groupId);
+    if (failed.length === results.length) {
+      return {
+        success: false,
+        error: `Failed to send to all admin groups: ${failed.join(", ")}`,
+      };
+    }
+
+    if (failed.length > 0) {
+      return {
+        success: true,
+        error: `Failed to send to some admin groups: ${failed.join(", ")}`,
+      };
+    }
+
+    return { success: true };
+  }
+
+  private async migrateLegacyAdminGroup(): Promise<void> {
+    const botState = await getCollection("bot_state");
+    const legacy = await botState.findOne({ key: "admin_group_id" });
+
+    if (!legacy?.value) {
+      return;
+    }
+
+    await this.registerGroup(legacy.value);
+  }
+}
+
+function parseAdminGroupIds(): string[] {
+  const combined = [
+    process.env.LINE_ADMIN_GROUP_IDS || "",
+    process.env.LINE_ADMIN_GROUP_ID || "",
+  ]
+    .filter(Boolean)
+    .join(",");
+
+  return combined
+    .split(",")
+    .map((groupId) => groupId.trim())
+    .filter(Boolean);
 }
 
 function getWeekNumber(date: Date): string {

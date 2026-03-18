@@ -423,7 +423,7 @@ export function buildWeeklySummaryMessage(stats: WeeklyStats): FlexMessage {
           { type: "separator", margin: "md", color: COLORS.border },
           createStatRow("⏱️ เวลาเฉลี่ย", `${stats.avgTimeToShip.toFixed(1)} วัน`),
           { type: "separator", margin: "md", color: COLORS.border },
-          createStatRow("⚠️ รอนาน", `${stats.stuckOrders} รายการ", stats.stuckOrders > 0 ? COLORS.danger : COLORS.primary),
+          createStatRow("⚠️ รอนาน", `${stats.stuckOrders} รายการ`, stats.stuckOrders > 0 ? COLORS.danger : COLORS.primary),
         ],
         paddingAll: "lg",
       },
@@ -555,7 +555,7 @@ export function buildCustomerOrderAcceptedMessage(order: OrderDocument): FlexMes
         layout: "vertical",
         contents: [
           { type: "text", text: "📦 อัปเดตออเดอร์", size: "xl", weight: "bold", color: COLORS.primary },
-          { type: "text", text: `ออเดอร์ #${orderId}`, size: "sm", color: COLORS.textLight, margin: "xs" },
+          { type: "text", text: "ออเดอร์ #" + orderId, size: "sm", color: COLORS.textLight, margin: "xs" },
           { type: "separator", margin: "md", color: COLORS.border },
           { type: "text", text: "ออเดอร์ของคุณกำลังถูกเตรียมโดยทีมของเรา! 🍵", size: "md", color: COLORS.text, margin: "md" },
           { type: "text", text: "เราจะแจ้งให้ทราบเมื่อจัดส่งแล้ว", size: "sm", color: COLORS.textLight },
@@ -579,9 +579,9 @@ export function buildCustomerOrderConfirmedMessage(order: OrderDocument): FlexMe
         layout: "vertical",
         contents: [
           { type: "text", text: "🍵 ได้รับออเดอร์แล้ว!", size: "xl", weight: "bold", color: COLORS.primary },
-          { type: "text", text: `ออเดอร์ #${orderId}`, size: "sm", color: COLORS.textLight, margin: "xs" },
+          { type: "text", text: "ออเดอร์ #" + orderId, size: "sm", color: COLORS.textLight, margin: "xs" },
           { type: "separator", margin: "md", color: COLORS.border },
-          { type: "text", text: `ยอดรวม: ${formatOrderAmount(order.totalAmount)}`, size: "lg", weight: "bold", color: COLORS.text, margin: "md" },
+          { type: "text", text: "ยอดรวม: " + formatOrderAmount(order.totalAmount), size: "lg", weight: "bold", color: COLORS.text, margin: "md" },
           { type: "text", text: "เราจะแจ้งเมื่อได้รับการยืนยันการชำระเงิน", size: "sm", color: COLORS.textLight },
         ],
         paddingAll: "lg",
@@ -603,7 +603,7 @@ export function buildCustomerPaymentVerifiedMessage(order: OrderDocument): FlexM
         layout: "vertical",
         contents: [
           { type: "text", text: "✅ ยืนยันการชำระเงินแล้ว!", size: "xl", weight: "bold", color: COLORS.primary },
-          { type: "text", text: `ออเดอร์ #${orderId}`, size: "sm", color: COLORS.textLight, margin: "xs" },
+          { type: "text", text: "ออเดอร์ #" + orderId, size: "sm", color: COLORS.textLight, margin: "xs" },
           { type: "separator", margin: "md", color: COLORS.border },
           { type: "text", text: "มาต๋าของคุณกำลังถูกเตรียมอย่างพิถีพิถัน! 🍵", size: "md", color: COLORS.text, margin: "md" },
           { type: "text", text: "เราจะแจ้งให้ทราบเมื่อจัดส่ง", size: "sm", color: COLORS.textLight },
@@ -666,13 +666,6 @@ function createStatRow(label: string, value: string, valueColor = COLORS.primary
       { type: "text", text: value, size: "lg", weight: "bold", color: valueColor, align: "end" },
     ],
     margin: "md",
-  };
-}
-
-    ],
-    paddingAll: "lg",
-      },
-    },
   };
 }
 

@@ -1,4 +1,15 @@
 import { ObjectId } from "mongodb";
+export type {
+  CoffeeGrade,
+  LeadDocument,
+  LeadState,
+  NegotiationHistoryEntry,
+  PriceSensitivity,
+  QuoteDocument,
+  QuoteItemDocument,
+  QuoteStatus,
+} from "./lead";
+export type { FSMState, LLMExtractionResult, StateTransition, TransitionContext } from "./fsm";
 
 // =============================================================================
 // LINE Bot Types
@@ -20,6 +31,17 @@ export interface BotStateDocument {
   _id?: ObjectId;
   key: string; // "admin_group_id", "last_daily_digest", "last_weekly_summary"
   value: string;
+  updatedAt: Date;
+}
+
+export type LineGroupRole = "admin" | "customer";
+
+export interface LineGroupDocument {
+  _id?: ObjectId;
+  groupId: string;
+  role: LineGroupRole;
+  sourceType: "group";
+  joinedAt: Date;
   updatedAt: Date;
 }
 

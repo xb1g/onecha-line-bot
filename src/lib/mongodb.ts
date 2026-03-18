@@ -1,4 +1,4 @@
-import { MongoClient, MongoClientOptions } from "mongodb";
+import { MongoClient, MongoClientOptions, type Document } from "mongodb";
 
 if (!process.env.MONGODB_URI) {
   throw new Error("MONGODB_URI environment variable is not defined");
@@ -28,7 +28,7 @@ if (process.env.NODE_ENV === "development") {
   clientPromise = client.connect();
 }
 
-export async function getCollection<T>(name: string) {
+export async function getCollection<T extends Document = Document>(name: string) {
   const client = await clientPromise;
   const db = client.db();
   return db.collection<T>(name);

@@ -9,7 +9,6 @@ import {
   MessageEvent,
   JoinEvent,
   FollowEvent,
-  TextMessageContent,
 } from "@line/bot-sdk";
 import { lineClient } from "../services/line-client";
 import { fulfillmentService } from "../services/fulfillment";
@@ -21,9 +20,10 @@ import {
 } from "../state/conversation";
 import { validateTrackingNumber } from "../utils/tracking";
 import { getShortOrderId } from "../utils/order-formatting";
+import { routeMessage } from "../fsm/router";
 import { ObjectId } from "mongodb";
 import { getCollection } from "../lib/mongodb";
-import { OrderDocument, CustomerDocument } from "../types/mongodb";
+import { OrderDocument, CustomerDocument, LineGroupRole } from "../types/mongodb";
 import {
   buildCommandDashboard,
   buildDailyDigestMessage,
@@ -51,6 +51,14 @@ export interface WebhookHandlerResult {
   status: "success" | "error" | "ignored";
   message?: string;
   error?: string;
+}
+
+interface ConversationContext {
+  conversationId: string;
+  groupId?: string;
+  groupRole?: LineGroupRole;
+  isAdminGroup: boolean;
+  isCustomerConversation: boolean;
 }
 
 // =============================================================================
@@ -92,12 +100,13 @@ async function handlePostback(event: PostbackEvent): Promise<WebhookHandlerResul
   const { data } = event.postback;
   const replyToken = event.replyToken;
   const userId = event.source.userId;
+  const context = await getConversationContext(event);
 
   if (!userId) {
     return { status: "error", error: "No user ID in postback event" };
   }
 
-  if (!(await isAdmin(userId))) {
+  if (!context.isAdminGroup && !(await isAdmin(userId))) {
     await replyError(replyToken, "คุณไม่มีสิทธิ์เข้าถึงระบบ");
     return { status: "error", error: "Unauthorized" };
   }
@@ -152,7 +161,9 @@ async function handlePostback(event: PostbackEvent): Promise<WebhookHandlerResul
         return { status: "error", error: "Missing order ID" };
       }
 
-      const selectedDate = event.postback.params?.date;
+      const postbackParams = event.postback.params;
+      const selectedDate =
+        postbackParams && "date" in postbackParams ? postbackParams.date : undefined;
       if (!selectedDate) {
         await replyError(replyToken, "กรุณาเลือกวันที่");
         return { status: "error", error: "Missing date" };
@@ -214,8 +225,8 @@ async function handlePostback(event: PostbackEvent): Promise<WebhookHandlerResul
       const orderIds = orderIdsStr.split(",");
       const result = await fulfillmentService.acceptAllOrders(orderIds, userId);
 
-      const message = result.succeeded.length > 0
-        ? `รับออเดอร์แล้ว ${result.succeeded.length} รายการ!`
+      const message = result.accepted.length > 0
+        ? `รับออเดอร์แล้ว ${result.accepted.length} รายการ!`
         : "ไม่มีออเดอร์ที่รับ";
 
       if (result.failed.length > 0) {
@@ -227,7 +238,7 @@ async function handlePostback(event: PostbackEvent): Promise<WebhookHandlerResul
         await replySuccess(replyToken, message);
       }
 
-      return { status: "success", message: `Accepted ${result.succeeded.length} orders` };
+      return { status: "success", message: `Accepted ${result.accepted.length} orders` };
     }
 
     case "cmd": {
@@ -287,11 +298,13 @@ async function handleCommand(replyToken: string, command: string): Promise<Webho
     case "pending_shipments": {
       const orders = await getCollection<OrderDocument>("orders");
       const pendingOrders = await orders.find({
-        scheduledShipDate: { $exists: true, $ne: null },
+        scheduledShipDate: { $exists: true },
         status: { $in: ["paid", "processing"] },
       }).sort({ scheduledShipDate: 1 }).toArray();
 
-      if (pendingOrders.length === 0) {
+      const scheduledOrders = pendingOrders.filter((order) => order.scheduledShipDate instanceof Date);
+
+      if (scheduledOrders.length === 0) {
         await lineClient.replyMessage(replyToken, {
           type: "text",
           text: "📅 ไม่มีออเดอร์ที่นัดส่งไว้",
@@ -302,7 +315,7 @@ async function handleCommand(replyToken: string, command: string): Promise<Webho
       const days = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
       const months = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
 
-      const lines = pendingOrders.map(o => {
+      const lines = scheduledOrders.map(o => {
         const d = o.scheduledShipDate!;
         const dateStr = `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
         return `${dateStr} - #${o._id?.toString().slice(-6).toUpperCase()}`;
@@ -334,6 +347,7 @@ async function handleCommand(replyToken: string, command: string): Promise<Webho
 async function handleMessage(event: MessageEvent): Promise<WebhookHandlerResult> {
   const userId = event.source.userId;
   const replyToken = event.replyToken;
+  const context = await getConversationContext(event);
 
   if (!userId) {
     return { status: "error", error: "No user ID in message event" };
@@ -343,12 +357,12 @@ async function handleMessage(event: MessageEvent): Promise<WebhookHandlerResult>
     return { status: "ignored", message: "Non-text message ignored" };
   }
 
-  const text = (event.message as TextMessageContent).text.trim();
+  const text = event.message.text.trim();
 
   // Check for pending tracking input
   const pendingState = await getPendingState(userId);
 
-  if (pendingState && !isStateExpired(pendingState)) {
+  if (pendingState && !isStateExpired(pendingState) && context.isAdminGroup) {
     if (pendingState.pendingAction === "awaiting_tracking_number") {
       return await handleTrackingInput(userId, replyToken, text, pendingState);
     }
@@ -358,18 +372,26 @@ async function handleMessage(event: MessageEvent): Promise<WebhookHandlerResult>
   const lowerText = text.toLowerCase();
   const isMentioned = lowerText.startsWith("onecha") || lowerText.startsWith("วันชา");
 
-  if (!isMentioned) {
-    return { status: "ignored", message: "Bot not mentioned" };
+  if (isMentioned) {
+    if (context.isCustomerConversation) {
+      return await handleCustomerConversation(context.conversationId, replyToken, text);
+    }
+
+    if (!(await isAdmin(userId)) && !context.isAdminGroup) {
+      return { status: "ignored", message: "Unauthorized" };
+    }
+
+    // Show command dashboard
+    const message = buildCommandDashboard();
+    await lineClient.replyMessage(replyToken, message);
+    return { status: "success", message: "Command dashboard sent" };
   }
 
-  if (!(await isAdmin(userId))) {
-    return { status: "ignored", message: "Unauthorized" };
+  if (context.isAdminGroup) {
+    return { status: "ignored", message: "Ignored non-command admin group message" };
   }
 
-  // Show command dashboard
-  const message = buildCommandDashboard();
-  await lineClient.replyMessage(replyToken, message);
-  return { status: "success", message: "Command dashboard sent" };
+  return await handleCustomerConversation(context.conversationId, replyToken, text);
 }
 
 // =============================================================================
@@ -429,15 +451,21 @@ async function handleJoin(event: JoinEvent): Promise<WebhookHandlerResult> {
 
   if (event.source.type === "group") {
     const groupId = event.source.groupId;
+    const role = await lineClient.registerGroup(groupId);
 
-    await lineClient.saveAdminGroupId(groupId);
+    if (role === "admin") {
+      await lineClient.replyMessage(replyToken, {
+        type: "text",
+        text: `🍵 สวัสดีครับ! ผมบอทวันชา\n\nบันทึกกลุ่มนี้เป็นช่องแจ้งเตือนแอดมินแล้ว\n\nจะส่งสรุปออเดอร์ทุกวันเวลา 9:00 น.\n\nพิมพ์ "วันชา" เพื่อเปิดเมนู`,
+      });
+    } else {
+      await lineClient.replyMessage(replyToken, {
+        type: "text",
+        text: `🍵 สวัสดีครับ! ผมบอทวันชา\n\nกลุ่มนี้ถูกตั้งเป็นกลุ่มลูกค้าโดยอัตโนมัติ\n\nผมช่วยตอบคำถามเรื่องสินค้า ราคา ออเดอร์ การชำระเงิน และบริการหลังการขายได้ครับ`,
+      });
+    }
 
-    await lineClient.replyMessage(replyToken, {
-      type: "text",
-      text: `🍵 สวัสดีครับ! ผมบอทวันชา\n\nบันทึกกลุ่มนี้เป็นช่องแจ้งเตือนแอดมินแล้ว\n\nจะส่งสรุปออเดอร์ทุกวันเวลา 9:00 น.\n\nพิมพ์ "วันชา" เพื่อเปิดเมนู`,
-    });
-
-    return { status: "success", message: `Joined group ${groupId}` };
+    return { status: "success", message: `Joined ${role} group ${groupId}` };
   }
 
   return { status: "ignored", message: "Joined non-group chat" };
@@ -479,4 +507,55 @@ async function replyError(replyToken: string, message: string): Promise<void> {
     type: "text",
     text: `❌ ${message}`,
   });
+}
+
+async function getConversationContext(
+  event: WebhookEvent
+): Promise<ConversationContext> {
+  if (event.source.type === "group") {
+    const groupId = event.source.groupId;
+    await lineClient.registerGroup(groupId);
+    const groupRole = await lineClient.getGroupRole(groupId);
+
+    return {
+      conversationId: groupId,
+      groupId,
+      groupRole,
+      isAdminGroup: groupRole === "admin",
+      isCustomerConversation: groupRole === "customer",
+    };
+  }
+
+  const userId = event.source.userId;
+  return {
+    conversationId: userId || "unknown",
+    isAdminGroup: false,
+    isCustomerConversation: true,
+  };
+}
+
+async function handleCustomerConversation(
+  conversationId: string,
+  replyToken: string,
+  text: string
+): Promise<WebhookHandlerResult> {
+  const fsmResult = await routeMessage(conversationId, text);
+  if (fsmResult.replyMessage) {
+    await lineClient.replyMessage(replyToken, {
+      type: "text",
+      text: fsmResult.replyMessage,
+    });
+  }
+
+  if (fsmResult.success) {
+    return {
+      status: "success",
+      message: fsmResult.newState ? `FSM routed to ${fsmResult.newState}` : "FSM routed",
+    };
+  }
+
+  return {
+    status: "error",
+    error: fsmResult.error || "FSM routing failed",
+  };
 }

@@ -50,7 +50,7 @@ Create a `.env.local` file:
 ```env
 LINE_CHANNEL_ACCESS_TOKEN=your_token
 LINE_CHANNEL_SECRET=your_secret
-LINE_ADMIN_GROUP_ID=your_group_id
+LINE_ADMIN_GROUP_IDS=admin_group_id_1,admin_group_id_2
 LINE_ADMIN_USER_IDS=user_id_1,user_id_2
 MONGODB_URI=mongodb+srv://...
 CRON_SECRET=your_secure_random_string
@@ -123,7 +123,8 @@ Set these in Vercel Dashboard → Project Settings → Environment Variables:
 |----------|----------|-------------|
 | `LINE_CHANNEL_ACCESS_TOKEN` | Yes | LINE channel access token |
 | `LINE_CHANNEL_SECRET` | Yes | LINE channel secret |
-| `LINE_ADMIN_GROUP_ID` | No | Admin group ID (auto-set on join) |
+| `LINE_ADMIN_GROUP_IDS` | No | Comma-separated admin group IDs |
+| `LINE_ADMIN_GROUP_ID` | No | Legacy single admin group ID fallback |
 | `LINE_ADMIN_USER_IDS` | No | Comma-separated admin user IDs |
 | `MONGODB_URI` | Yes | MongoDB connection string |
 | `CRON_SECRET` | Yes | Secret for cron endpoints |

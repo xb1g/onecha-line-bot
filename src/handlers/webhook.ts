@@ -23,24 +23,40 @@ import { getShortOrderId } from "../utils/order-formatting";
 import { routeMessage } from "../fsm/router";
 import { ObjectId } from "mongodb";
 import { getCollection } from "../lib/mongodb";
-import { OrderDocument, CustomerDocument, LineGroupRole } from "../types/mongodb";
+import {
+  OrderDocument,
+  CustomerDocument,
+  LineGroupRole,
+} from "../types/mongodb";
 import {
   buildCommandDashboard,
   buildDailyDigestMessage,
   buildWeeklySummaryMessage,
 } from "../messages/flex-builder";
+import { hasAdminSession, createAdminSession } from "../services/admin-session";
+import {
+  setAwaitingAdminPassword,
+  getAdminLoginState,
+  clearAdminLoginState,
+} from "../state/admin-login";
 
 // =============================================================================
 // Admin Access Control
 // =============================================================================
 
-const ADMIN_USER_IDS = (process.env.LINE_ADMIN_USER_IDS || "").split(",").map(s => s.trim()).filter(Boolean);
+const ADMIN_USER_IDS = (process.env.LINE_ADMIN_USER_IDS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 async function isAdmin(userId: string): Promise<boolean> {
+  // Check environment variables first
   if (ADMIN_USER_IDS.includes(userId)) {
     return true;
   }
-  return true; // Allow all users in the group
+
+  // Check for active admin session
+  return await hasAdminSession(userId);
 }
 
 // =============================================================================
@@ -65,7 +81,9 @@ interface ConversationContext {
 // Main Event Router
 // =============================================================================
 
-export async function handleWebhookEvent(event: WebhookEvent): Promise<WebhookHandlerResult> {
+export async function handleWebhookEvent(
+  event: WebhookEvent,
+): Promise<WebhookHandlerResult> {
   try {
     switch (event.type) {
       case "postback":
@@ -81,7 +99,10 @@ export async function handleWebhookEvent(event: WebhookEvent): Promise<WebhookHa
       case "leave":
         return { status: "ignored", message: "Bot left group" };
       default:
-        return { status: "ignored", message: `Unhandled event type: ${event.type}` };
+        return {
+          status: "ignored",
+          message: `Unhandled event type: ${event.type}`,
+        };
     }
   } catch (error) {
     console.error("Error handling webhook event:", error);
@@ -96,7 +117,9 @@ export async function handleWebhookEvent(event: WebhookEvent): Promise<WebhookHa
 // Postback Handler
 // =============================================================================
 
-async function handlePostback(event: PostbackEvent): Promise<WebhookHandlerResult> {
+async function handlePostback(
+  event: PostbackEvent,
+): Promise<WebhookHandlerResult> {
   const { data } = event.postback;
   const replyToken = event.replyToken;
   const userId = event.source.userId;
@@ -142,7 +165,9 @@ async function handlePostback(event: PostbackEvent): Promise<WebhookHandlerResul
       }
 
       try {
-        const shippingInfo = Buffer.from(encodedData, "base64").toString("utf-8");
+        const shippingInfo = Buffer.from(encodedData, "base64").toString(
+          "utf-8",
+        );
         await lineClient.replyMessage(replyToken, {
           type: "text",
           text: `📋 ข้อมูลจัดส่ง (ออเดอร์ #${orderId?.slice(-6).toUpperCase()})\n\n${shippingInfo}`,
@@ -163,7 +188,9 @@ async function handlePostback(event: PostbackEvent): Promise<WebhookHandlerResul
 
       const postbackParams = event.postback.params;
       const selectedDate =
-        postbackParams && "date" in postbackParams ? postbackParams.date : undefined;
+        postbackParams && "date" in postbackParams
+          ? postbackParams.date
+          : undefined;
       if (!selectedDate) {
         await replyError(replyToken, "กรุณาเลือกวันที่");
         return { status: "error", error: "Missing date" };
@@ -171,15 +198,35 @@ async function handlePostback(event: PostbackEvent): Promise<WebhookHandlerResul
 
       try {
         const scheduledDate = new Date(selectedDate + "T09:00:00+07:00");
-        const order = await fulfillmentService.scheduleFulfillment(orderId, userId, scheduledDate);
+        const order = await fulfillmentService.scheduleFulfillment(
+          orderId,
+          userId,
+          scheduledDate,
+        );
         const shortId = getShortOrderId(order);
 
         const days = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
-        const months = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+        const months = [
+          "ม.ค.",
+          "ก.พ.",
+          "มี.ค.",
+          "เม.ย.",
+          "พ.ค.",
+          "มิ.ย.",
+          "ก.ค.",
+          "ส.ค.",
+          "ก.ย.",
+          "ต.ค.",
+          "พ.ย.",
+          "ธ.ค.",
+        ];
         const d = scheduledDate;
         const dateStr = `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear() + 543}`;
 
-        await replySuccess(replyToken, `นัดส่งออเดอร์ #${shortId} วันที่ ${dateStr}`);
+        await replySuccess(
+          replyToken,
+          `นัดส่งออเดอร์ #${shortId} วันที่ ${dateStr}`,
+        );
         return { status: "success", message: `Order ${orderId} scheduled` };
       } catch (error: any) {
         await replyError(replyToken, error.message || "ไม่สามารถนัดเวลาได้");
@@ -201,14 +248,21 @@ async function handlePostback(event: PostbackEvent): Promise<WebhookHandlerResul
           return { status: "error", error: "Order not found" };
         }
 
-        await setAwaitingTrackingState(userId, new ObjectId(orderId), getShortOrderId(order));
+        await setAwaitingTrackingState(
+          userId,
+          new ObjectId(orderId),
+          getShortOrderId(order),
+        );
 
         await lineClient.replyMessage(replyToken, {
           type: "text",
           text: `📦 กรุณากรอกเลขพัสดุสำหรับออเดอร์ #${getShortOrderId(order)}:`,
         });
 
-        return { status: "success", message: `Awaiting tracking for ${orderId}` };
+        return {
+          status: "success",
+          message: `Awaiting tracking for ${orderId}`,
+        };
       } catch (error: any) {
         await replyError(replyToken, error.message || "เกิดข้อผิดพลาด");
         return { status: "error", error: error.message };
@@ -225,9 +279,10 @@ async function handlePostback(event: PostbackEvent): Promise<WebhookHandlerResul
       const orderIds = orderIdsStr.split(",");
       const result = await fulfillmentService.acceptAllOrders(orderIds, userId);
 
-      const message = result.accepted.length > 0
-        ? `รับออเดอร์แล้ว ${result.accepted.length} รายการ!`
-        : "ไม่มีออเดอร์ที่รับ";
+      const message =
+        result.accepted.length > 0
+          ? `รับออเดอร์แล้ว ${result.accepted.length} รายการ!`
+          : "ไม่มีออเดอร์ที่รับ";
 
       if (result.failed.length > 0) {
         await lineClient.replyMessage(replyToken, {
@@ -238,7 +293,10 @@ async function handlePostback(event: PostbackEvent): Promise<WebhookHandlerResul
         await replySuccess(replyToken, message);
       }
 
-      return { status: "success", message: `Accepted ${result.accepted.length} orders` };
+      return {
+        status: "success",
+        message: `Accepted ${result.accepted.length} orders`,
+      };
     }
 
     case "cmd": {
@@ -246,7 +304,10 @@ async function handlePostback(event: PostbackEvent): Promise<WebhookHandlerResul
     }
 
     default:
-      return { status: "ignored", message: `Unknown postback action: ${action}` };
+      return {
+        status: "ignored",
+        message: `Unknown postback action: ${action}`,
+      };
   }
 }
 
@@ -254,7 +315,10 @@ async function handlePostback(event: PostbackEvent): Promise<WebhookHandlerResul
 // Command Handler
 // =============================================================================
 
-async function handleCommand(replyToken: string, command: string): Promise<WebhookHandlerResult> {
+async function handleCommand(
+  replyToken: string,
+  command: string,
+): Promise<WebhookHandlerResult> {
   switch (command) {
     case "today_orders": {
       const orders = await fulfillmentService.getDailyDigestOrders();
@@ -297,12 +361,17 @@ async function handleCommand(replyToken: string, command: string): Promise<Webho
 
     case "pending_shipments": {
       const orders = await getCollection<OrderDocument>("orders");
-      const pendingOrders = await orders.find({
-        scheduledShipDate: { $exists: true },
-        status: { $in: ["paid", "processing"] },
-      }).sort({ scheduledShipDate: 1 }).toArray();
+      const pendingOrders = await orders
+        .find({
+          scheduledShipDate: { $exists: true },
+          status: { $in: ["paid", "processing"] },
+        })
+        .sort({ scheduledShipDate: 1 })
+        .toArray();
 
-      const scheduledOrders = pendingOrders.filter((order) => order.scheduledShipDate instanceof Date);
+      const scheduledOrders = pendingOrders.filter(
+        (order) => order.scheduledShipDate instanceof Date,
+      );
 
       if (scheduledOrders.length === 0) {
         await lineClient.replyMessage(replyToken, {
@@ -313,9 +382,22 @@ async function handleCommand(replyToken: string, command: string): Promise<Webho
       }
 
       const days = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
-      const months = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+      const months = [
+        "ม.ค.",
+        "ก.พ.",
+        "มี.ค.",
+        "เม.ย.",
+        "พ.ค.",
+        "มิ.ย.",
+        "ก.ค.",
+        "ส.ค.",
+        "ก.ย.",
+        "ต.ค.",
+        "พ.ย.",
+        "ธ.ค.",
+      ];
 
-      const lines = scheduledOrders.map(o => {
+      const lines = scheduledOrders.map((o) => {
         const d = o.scheduledShipDate!;
         const dateStr = `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
         return `${dateStr} - #${o._id?.toString().slice(-6).toUpperCase()}`;
@@ -344,7 +426,9 @@ async function handleCommand(replyToken: string, command: string): Promise<Webho
 // Message Handler
 // =============================================================================
 
-async function handleMessage(event: MessageEvent): Promise<WebhookHandlerResult> {
+async function handleMessage(
+  event: MessageEvent,
+): Promise<WebhookHandlerResult> {
   const userId = event.source.userId;
   const replyToken = event.replyToken;
   const context = await getConversationContext(event);
@@ -368,13 +452,29 @@ async function handleMessage(event: MessageEvent): Promise<WebhookHandlerResult>
     }
   }
 
+  // Check for admin password input
+  const adminLoginState = await getAdminLoginState(userId);
+  if (adminLoginState) {
+    return await handleAdminPasswordInput(userId, replyToken, text);
+  }
+
   // Check for trigger words
   const lowerText = text.toLowerCase();
-  const isMentioned = lowerText.startsWith("onecha") || lowerText.startsWith("วันชา");
+  const isMentioned =
+    lowerText.startsWith("onecha") || lowerText.startsWith("วันชา");
+
+  // Check for admin login command
+  if (lowerText === "onecha admin login" || lowerText === "วันชา admin login") {
+    return await handleAdminLogin(userId, replyToken);
+  }
 
   if (isMentioned) {
     if (context.isCustomerConversation) {
-      return await handleCustomerConversation(context.conversationId, replyToken, text);
+      return await handleCustomerConversation(
+        context.conversationId,
+        replyToken,
+        text,
+      );
     }
 
     if (!(await isAdmin(userId)) && !context.isAdminGroup) {
@@ -388,10 +488,17 @@ async function handleMessage(event: MessageEvent): Promise<WebhookHandlerResult>
   }
 
   if (context.isAdminGroup) {
-    return { status: "ignored", message: "Ignored non-command admin group message" };
+    return {
+      status: "ignored",
+      message: "Ignored non-command admin group message",
+    };
   }
 
-  return await handleCustomerConversation(context.conversationId, replyToken, text);
+  return await handleCustomerConversation(
+    context.conversationId,
+    replyToken,
+    text,
+  );
 }
 
 // =============================================================================
@@ -402,7 +509,7 @@ async function handleTrackingInput(
   userId: string,
   replyToken: string,
   trackingNumber: string,
-  state: any
+  state: any,
 ): Promise<WebhookHandlerResult> {
   const orderId = state.orderId.toString();
 
@@ -421,7 +528,7 @@ async function handleTrackingInput(
       orderId,
       trackingNumber.toUpperCase(),
       validation.carrier || "unknown",
-      validation.trackingUrl || ""
+      validation.trackingUrl || "",
     );
 
     await clearPendingState(userId);
@@ -492,10 +599,95 @@ async function handleFollow(event: FollowEvent): Promise<WebhookHandlerResult> {
 }
 
 // =============================================================================
+// Admin Login Handler
+// =============================================================================
+
+async function handleAdminLogin(
+  userId: string,
+  replyToken: string,
+): Promise<WebhookHandlerResult> {
+  const adminPassword = process.env.LINE_ADMIN_PASSWORD;
+
+  if (!adminPassword) {
+    await lineClient.replyMessage(replyToken, {
+      type: "text",
+      text: "❌ ระบบแอดมินไม่ได้เปิดใช้งาน",
+    });
+    return { status: "error", error: "Admin password not configured" };
+  }
+
+  // Check if user already has admin session
+  if (await hasAdminSession(userId)) {
+    await lineClient.replyMessage(replyToken, {
+      type: "text",
+      text: "✅ คุณมีสิทธิ์แอดมินอยู่แล้ว\n\nพิมพ์ 'วันชา' เพื่อเปิดเมนู",
+    });
+    return { status: "success", message: "User already has admin session" };
+  }
+
+  // Set user as awaiting password input
+  await setAwaitingAdminPassword(userId);
+
+  await lineClient.replyMessage(replyToken, {
+    type: "text",
+    text: "🔐 กรุณากรอกรหัสผ่านแอดมิน:",
+  });
+
+  return { status: "success", message: "Password requested" };
+}
+
+// =============================================================================
+// Admin Password Input Handler
+// =============================================================================
+
+async function handleAdminPasswordInput(
+  userId: string,
+  replyToken: string,
+  password: string,
+): Promise<WebhookHandlerResult> {
+  const adminPassword = process.env.LINE_ADMIN_PASSWORD;
+
+  if (!adminPassword) {
+    await clearAdminLoginState(userId);
+    await lineClient.replyMessage(replyToken, {
+      type: "text",
+      text: "❌ ระบบแอดมินไม่ได้เปิดใช้งาน",
+    });
+    return { status: "error", error: "Admin password not configured" };
+  }
+
+  // Verify password
+  if (password.trim() === adminPassword) {
+    // Create admin session
+    await createAdminSession(userId);
+    await clearAdminLoginState(userId);
+
+    await lineClient.replyMessage(replyToken, {
+      type: "text",
+      text: "✅ เข้าสู่ระบบแอดมินสำเร็จ!\n\nพิมพ์ 'วันชา' เพื่อเปิดเมนู",
+    });
+
+    return { status: "success", message: "Admin login successful" };
+  } else {
+    await clearAdminLoginState(userId);
+
+    await lineClient.replyMessage(replyToken, {
+      type: "text",
+      text: "❌ รหัสผ่านไม่ถูกต้อง\n\nกรุณาลองใหม่อีกครั้ง",
+    });
+
+    return { status: "error", error: "Invalid password" };
+  }
+}
+
+// =============================================================================
 // Helper Functions
 // =============================================================================
 
-async function replySuccess(replyToken: string, message: string): Promise<void> {
+async function replySuccess(
+  replyToken: string,
+  message: string,
+): Promise<void> {
   await lineClient.replyMessage(replyToken, {
     type: "text",
     text: `✅ ${message}`,
@@ -510,7 +702,7 @@ async function replyError(replyToken: string, message: string): Promise<void> {
 }
 
 async function getConversationContext(
-  event: WebhookEvent
+  event: WebhookEvent,
 ): Promise<ConversationContext> {
   if (event.source.type === "group") {
     const groupId = event.source.groupId;
@@ -537,7 +729,7 @@ async function getConversationContext(
 async function handleCustomerConversation(
   conversationId: string,
   replyToken: string,
-  text: string
+  text: string,
 ): Promise<WebhookHandlerResult> {
   const fsmResult = await routeMessage(conversationId, text);
   if (fsmResult.replyMessage) {
@@ -550,7 +742,9 @@ async function handleCustomerConversation(
   if (fsmResult.success) {
     return {
       status: "success",
-      message: fsmResult.newState ? `FSM routed to ${fsmResult.newState}` : "FSM routed",
+      message: fsmResult.newState
+        ? `FSM routed to ${fsmResult.newState}`
+        : "FSM routed",
     };
   }
 

@@ -108,6 +108,35 @@ export class LineClient {
     }
   }
 
+  async tryPushMessage(
+    to: string,
+    message: { type: "text"; text: string } | FlexMessage
+  ): Promise<boolean> {
+    if (!this.channelAccessToken) {
+      return false;
+    }
+
+    try {
+      await axios.post(
+        "https://api.line.me/v2/bot/message/push",
+        { to, messages: [message] },
+        {
+          headers: {
+            Authorization: `Bearer ${this.channelAccessToken}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      return true;
+    } catch (error: any) {
+      if (error.response?.status === 403) {
+        return false;
+      }
+      console.error("Failed to push message:", error.response?.data || error.message);
+      return false;
+    }
+  }
+
   /**
    * Send the daily digest to the employee group.
    */

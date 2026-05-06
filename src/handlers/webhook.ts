@@ -18,6 +18,14 @@ import {
   clearPendingState,
   isStateExpired,
 } from "../state/conversation";
+import {
+  wasMenuSentRecently,
+  trackMenuSent,
+} from "../state/menu-cooldown";
+import {
+  canReceiveDM,
+  setCanReceiveDM,
+} from "../state/dm-preference";
 import { validateTrackingNumber } from "../utils/tracking";
 import { getShortOrderId } from "../utils/order-formatting";
 import { routeMessage } from "../fsm/router";
@@ -155,7 +163,13 @@ async function handlePostback(
       try {
         const order = await fulfillmentService.acceptOrder(orderId, userId);
         const shortId = getShortOrderId(order);
-        await replySuccess(replyToken, `รับออเดอร์ #${shortId} แล้ว!`);
+        const dmSent = await lineClient.tryPushMessage(userId, {
+          type: "text",
+          text: `✅ รับออเดอร์ #${shortId} แล้ว!`,
+        });
+        if (!dmSent) {
+          await replySuccess(replyToken, `รับออเดอร์ #${shortId} แล้ว!`);
+        }
         return { status: "success", message: `Order ${orderId} accepted` };
       } catch (error: any) {
         await replyError(replyToken, error.message || "ไม่สามารถรับออเดอร์ได้");
@@ -322,10 +336,16 @@ async function handlePostback(
           userId
         );
         const shortId = getShortOrderId(order);
-        await replySuccess(
-          replyToken,
-          `อัปเดตออเดอร์ #${shortId} เป็น ${getStatusLabel(newStatus)}`
-        );
+        const dmSent = await lineClient.tryPushMessage(userId, {
+          type: "text",
+          text: `✅ อัปเดตออเดอร์ #${shortId} เป็น ${getStatusLabel(newStatus)}`,
+        });
+        if (!dmSent) {
+          await replySuccess(
+            replyToken,
+            `อัปเดตออเดอร์ #${shortId} เป็น ${getStatusLabel(newStatus)}`
+          );
+        }
         return { status: "success", message: `Order ${orderId} updated to ${newStatus}` };
       } catch (error: any) {
         await replyError(replyToken, error.message || "ไม่สามารถอัปเดตสถานะได้");
@@ -646,19 +666,35 @@ async function handleMessage(
       ? await memberRoleService.isStaffOrAdmin(context.groupId, userId)
       : false;
 
+    let menuMessage: any;
     if (isUserAdmin) {
-      const message = buildCommandDashboard();
-      await lineClient.replyMessage(replyToken, message);
-      return { status: "success", message: "Command dashboard sent" };
+      menuMessage = buildCommandDashboard();
+    } else if (isUserStaff) {
+      menuMessage = buildStaffDashboard();
+    } else {
+      return { status: "ignored", message: "Unauthorized" };
     }
 
-    if (isUserStaff) {
-      const message = buildStaffDashboard();
-      await lineClient.replyMessage(replyToken, message);
-      return { status: "success", message: "Staff dashboard sent" };
+    const chatId = context.groupId || userId;
+    const isGroup = !!context.groupId;
+
+    if (isGroup) {
+      const recent = await wasMenuSentRecently(userId, chatId);
+      if (recent) {
+        return { status: "ignored", message: "Menu cooldown active" };
+      }
+
+      const dmSent = await lineClient.tryPushMessage(userId, menuMessage);
+      if (dmSent) {
+        await setCanReceiveDM(userId, true);
+        return { status: "success", message: "Menu sent via DM" };
+      }
+
+      await trackMenuSent(userId, chatId);
     }
 
-    return { status: "ignored", message: "Unauthorized" };
+    await lineClient.replyMessage(replyToken, menuMessage);
+    return { status: "success", message: "Menu sent" };
   }
 
   if (context.isAdminGroup) {

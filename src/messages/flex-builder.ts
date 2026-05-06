@@ -765,16 +765,16 @@ function createField(label: string, value: string): FlexBox {
 }
 
 function createButton(label: string, postData: string, style: "primary" | "secondary" | "link"): FlexButton {
-  const colors = {
+  const bgColors = {
     primary: COLORS.primary,
-    secondary: "#333333",
-    link: COLORS.text,
+    secondary: "#444444",
+    link: "transparent",
   };
   return {
     type: "button",
     action: { type: "postback", label, data: postData },
-    style: style === "link" ? "link" : style,
-    color: colors[style],
+    style: style === "link" ? "link" : "primary",
+    color: bgColors[style],
     height: "sm",
   };
 }

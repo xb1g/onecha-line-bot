@@ -482,6 +482,14 @@ async function handleMessage(
     return await handleAdminGroupRemove(userId, replyToken, context);
   }
 
+  if (lowerText === "onecha whoami" || lowerText === "วันชา whoami") {
+    await lineClient.replyMessage(replyToken, {
+      type: "text",
+      text: `🆔 Your LINE user ID:\n\n${userId}\n\nAdd this to LINE_ADMIN_USER_IDS env var to make yourself an admin.`,
+    });
+    return { status: "success", message: "User ID sent" };
+  }
+
   if (isMentioned) {
     if (context.isCustomerConversation) {
       return await handleCustomerConversation(

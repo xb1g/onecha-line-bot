@@ -598,6 +598,20 @@ async function handleMessage(
 
   if (pendingState && !isStateExpired(pendingState) && context.isAdminGroup) {
     if (pendingState.pendingAction === "awaiting_tracking_number") {
+      const lowerText = text.toLowerCase();
+      if (
+        lowerText === "cancel" ||
+        lowerText === "ยกเลิก" ||
+        lowerText === "exit" ||
+        lowerText === "ออก"
+      ) {
+        await clearPendingState(userId);
+        await lineClient.replyMessage(replyToken, {
+          type: "text",
+          text: "✅ ยกเลิกการกรอกเลขพัสดุแล้ว",
+        });
+        return { status: "success", message: "Tracking input cancelled" };
+      }
       return await handleTrackingInput(userId, replyToken, text, pendingState);
     }
   }

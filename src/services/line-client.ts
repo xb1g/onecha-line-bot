@@ -215,9 +215,41 @@ export class LineClient {
 
   /**
    * Upsert a group record and return its effective role.
+   * Preserves existing role from database (allows manual overrides).
    */
   async registerGroup(groupId: string): Promise<LineGroupRole> {
-    const role = this.getConfiguredRole(groupId);
+    const groups = await getCollection<LineGroupDocument>("line_groups");
+    const now = new Date();
+
+    const existing = await groups.findOne({ groupId });
+    const role = existing?.role ?? this.getConfiguredRole(groupId);
+
+    await groups.updateOne(
+      { groupId },
+      {
+        $set: {
+          groupId,
+          role,
+          sourceType: "group",
+          updatedAt: now,
+        },
+        $setOnInsert: {
+          joinedAt: now,
+        },
+      },
+      { upsert: true }
+    );
+
+    return role;
+  }
+
+  /**
+   * Set the role for a group ID manually (e.g. via admin command).
+   */
+  async setGroupRole(
+    groupId: string,
+    role: LineGroupRole
+  ): Promise<LineGroupRole> {
     const groups = await getCollection<LineGroupDocument>("line_groups");
     const now = new Date();
 
@@ -242,22 +274,17 @@ export class LineClient {
 
   /**
    * Get the role for a group ID.
+   * Returns the DB role if it exists, otherwise falls back to configured role.
    */
   async getGroupRole(groupId: string): Promise<LineGroupRole> {
-    const configuredRole = this.getConfiguredRole(groupId);
     const groups = await getCollection<LineGroupDocument>("line_groups");
     const group = await groups.findOne({ groupId });
 
-    if (!group) {
-      return configuredRole;
+    if (group) {
+      return group.role;
     }
 
-    if (group.role !== configuredRole) {
-      await this.registerGroup(groupId);
-      return configuredRole;
-    }
-
-    return group.role;
+    return this.getConfiguredRole(groupId);
   }
 
   /**

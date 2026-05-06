@@ -468,6 +468,20 @@ async function handleMessage(
     return await handleAdminLogin(userId, replyToken);
   }
 
+  if (
+    lowerText === "onecha admin group add" ||
+    lowerText === "วันชา admin group add"
+  ) {
+    return await handleAdminGroupAdd(userId, replyToken, context);
+  }
+
+  if (
+    lowerText === "onecha admin group remove" ||
+    lowerText === "วันชา admin group remove"
+  ) {
+    return await handleAdminGroupRemove(userId, replyToken, context);
+  }
+
   if (isMentioned) {
     if (context.isCustomerConversation) {
       return await handleCustomerConversation(
@@ -752,4 +766,54 @@ async function handleCustomerConversation(
     status: "error",
     error: fsmResult.error || "FSM routing failed",
   };
+}
+
+async function handleAdminGroupAdd(
+  userId: string,
+  replyToken: string,
+  context: ConversationContext,
+): Promise<WebhookHandlerResult> {
+  if (!(await isAdmin(userId))) {
+    await replyError(replyToken, "คุณไม่มีสิทธิ์จัดการกลุ่มแอดมิน");
+    return { status: "error", error: "Unauthorized" };
+  }
+
+  if (!context.groupId) {
+    await replyError(replyToken, "คำสั่งนี้ใช้ได้เฉพาะในกลุ่มเท่านั้น");
+    return { status: "error", error: "Not a group chat" };
+  }
+
+  await lineClient.setGroupRole(context.groupId, "admin");
+
+  await lineClient.replyMessage(replyToken, {
+    type: "text",
+    text: "✅ ตั้งกลุ่มนี้เป็นกลุ่มแอดมินแล้ว\n\nพิมพ์ 'วันชา' เพื่อเปิดเมนู",
+  });
+
+  return { status: "success", message: "Group set as admin" };
+}
+
+async function handleAdminGroupRemove(
+  userId: string,
+  replyToken: string,
+  context: ConversationContext,
+): Promise<WebhookHandlerResult> {
+  if (!(await isAdmin(userId))) {
+    await replyError(replyToken, "คุณไม่มีสิทธิ์จัดการกลุ่มแอดมิน");
+    return { status: "error", error: "Unauthorized" };
+  }
+
+  if (!context.groupId) {
+    await replyError(replyToken, "คำสั่งนี้ใช้ได้เฉพาะในกลุ่มเท่านั้น");
+    return { status: "error", error: "Not a group chat" };
+  }
+
+  await lineClient.setGroupRole(context.groupId, "customer");
+
+  await lineClient.replyMessage(replyToken, {
+    type: "text",
+    text: "✅ ยกเลิกกลุ่มแอดมินแล้ว\n\nกลุ่มนี้จะถูกตั้งเป็นกลุ่มลูกค้า",
+  });
+
+  return { status: "success", message: "Group removed from admin" };
 }

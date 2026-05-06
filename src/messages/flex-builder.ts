@@ -521,6 +521,104 @@ export function buildCustomerMenu(): FlexMessage {
   };
 }
 
+export function buildStaffDashboard(): FlexMessage {
+  return {
+    type: "flex",
+    altText: "เมนูเจ้าหน้าที่",
+    contents: {
+      type: "bubble",
+      styles: {
+        header: { backgroundColor: COLORS.backgroundHeader },
+        body: { backgroundColor: COLORS.backgroundCard },
+      },
+      header: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          { type: "text", text: "👷 เมนูเจ้าหน้าที่", size: "xl", weight: "bold", color: COLORS.primary },
+          { type: "text", text: "จัดการออเดอร์", size: "sm", color: COLORS.textLight, margin: "xs" },
+        ],
+        paddingAll: "lg",
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: [
+          createButton("📋 ออเดอร์ที่ต้องทำ", "cmd:staff_orders", "primary"),
+          createButton("🔄 กำลังผสม", "cmd:status_blending", "secondary"),
+          createButton("📦 กำลังบรรจุ", "cmd:status_packing", "secondary"),
+          createButton("🚚 รอส่ง", "cmd:status_shipping", "secondary"),
+        ],
+        paddingAll: "lg",
+      },
+    },
+  };
+}
+
+export function buildOrderStatusCard(order: OrderDocument, currentStatus: string): FlexBubble {
+  const orderId = getShortOrderId(order);
+  const statusFlow = ["paid", "blending", "packing", "shipping", "shipped"];
+  const currentIndex = statusFlow.indexOf(currentStatus);
+
+  const nextStatus = currentIndex < statusFlow.length - 1 ? statusFlow[currentIndex + 1] : null;
+
+  const buttons: FlexComponent[] = [];
+  if (nextStatus && nextStatus !== "shipped") {
+    buttons.push(createButton(`➡️ ${getStatusLabel(nextStatus)}`, `status_update:${order._id}:${nextStatus}`, "primary"));
+  }
+  if (nextStatus === "shipped") {
+    buttons.push(createButton("🚚 ใส่เลขพัสดุ", `ship_order:${order._id}`, "primary"));
+  }
+
+  return {
+    type: "bubble",
+    size: "kilo",
+    styles: {
+      header: { backgroundColor: COLORS.backgroundHeader },
+      body: { backgroundColor: COLORS.backgroundCard },
+      footer: { backgroundColor: COLORS.background, separator: true, separatorColor: COLORS.border },
+    },
+    header: {
+      type: "box",
+      layout: "horizontal",
+      contents: [
+        { type: "text", text: `#${orderId}`, weight: "bold", size: "lg", color: COLORS.text, flex: 1 },
+        { type: "text", text: getStatusLabel(currentStatus), size: "sm", color: COLORS.primary, align: "end" },
+      ],
+      paddingAll: "md",
+    },
+    body: {
+      type: "box",
+      layout: "vertical",
+      contents: [
+        createField("สินค้า", order.items.map((i) => `${i.productName} x${i.quantity}`).join(", ")),
+        createField("ยอดรวม", formatOrderAmount(order.totalAmount)),
+      ],
+      paddingAll: "md",
+    },
+    footer: buttons.length > 0 ? {
+      type: "box",
+      layout: "horizontal",
+      contents: buttons,
+      spacing: "sm",
+      paddingAll: "sm",
+    } : undefined,
+  };
+}
+
+function getStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    paid: "รอดำเนินการ",
+    blending: "กำลังผสม",
+    packing: "กำลังบรรจุ",
+    shipping: "รอส่ง",
+    shipped: "ส่งแล้ว",
+    cancelled: "ยกเลิก",
+  };
+  return labels[status] || status;
+}
+
 // =============================================================================
 // Customer Notifications
 // =============================================================================

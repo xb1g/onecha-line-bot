@@ -303,6 +303,59 @@ export class LineClient {
     return this.configuredAdminGroupIds.includes(groupId) ? "admin" : "customer";
   }
 
+  /**
+   * Get group member user IDs from LINE API.
+   */
+  async getGroupMemberIds(groupId: string): Promise<string[]> {
+    if (!this.channelAccessToken) {
+      console.warn("LINE Disabled: Missing channel access token");
+      return [];
+    }
+
+    try {
+      const response = await axios.get(
+        `https://api.line.me/v2/bot/group/${groupId}/members/ids`,
+        {
+          headers: {
+            Authorization: `Bearer ${this.channelAccessToken}`,
+          },
+        }
+      );
+      return response.data.memberIds || [];
+    } catch (error: any) {
+      console.error("Failed to get group member IDs:", error.response?.data || error.message);
+      return [];
+    }
+  }
+
+  /**
+   * Get a user's profile from LINE API.
+   */
+  async getUserProfile(userId: string): Promise<{ displayName: string; pictureUrl?: string } | null> {
+    if (!this.channelAccessToken) {
+      console.warn("LINE Disabled: Missing channel access token");
+      return null;
+    }
+
+    try {
+      const response = await axios.get(
+        `https://api.line.me/v2/bot/profile/${userId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${this.channelAccessToken}`,
+          },
+        }
+      );
+      return {
+        displayName: response.data.displayName,
+        pictureUrl: response.data.pictureUrl,
+      };
+    } catch (error: any) {
+      console.error("Failed to get user profile:", error.response?.data || error.message);
+      return null;
+    }
+  }
+
   private async sendFlexMessageToMany(
     groupIds: string[],
     flexMessage: FlexMessage

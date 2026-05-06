@@ -31,10 +31,12 @@ import {
 import {
   buildCommandDashboard,
   buildCustomerMenu,
+  buildStaffDashboard,
   buildDailyDigestMessage,
   buildWeeklySummaryMessage,
 } from "../messages/flex-builder";
 import { hasAdminSession, createAdminSession } from "../services/admin-session";
+import { memberRoleService } from "../services/member-role";
 import {
   setAwaitingAdminPassword,
   getAdminLoginState,
@@ -130,7 +132,12 @@ async function handlePostback(
     return { status: "error", error: "No user ID in postback event" };
   }
 
-  if (!context.isAdminGroup && !(await isAdmin(userId))) {
+  const isUserAdmin = await isAdmin(userId);
+  const isUserStaff = context.groupId
+    ? await memberRoleService.isStaffOrAdmin(context.groupId, userId)
+    : false;
+
+  if (!context.isAdminGroup && !isUserAdmin && !isUserStaff) {
     await replyError(replyToken, "คุณไม่มีสิทธิ์เข้าถึงระบบ");
     return { status: "error", error: "Unauthorized" };
   }
@@ -300,6 +307,32 @@ async function handlePostback(
       };
     }
 
+    case "status_update": {
+      const orderId = params[0];
+      const newStatus = params[1];
+      if (!orderId || !newStatus) {
+        await replyError(replyToken, "ไม่พบข้อมูลออเดอร์");
+        return { status: "error", error: "Missing data" };
+      }
+
+      try {
+        const order = await fulfillmentService.updateOrderStatus(
+          orderId,
+          newStatus,
+          userId
+        );
+        const shortId = getShortOrderId(order);
+        await replySuccess(
+          replyToken,
+          `อัปเดตออเดอร์ #${shortId} เป็น ${getStatusLabel(newStatus)}`
+        );
+        return { status: "success", message: `Order ${orderId} updated to ${newStatus}` };
+      } catch (error: any) {
+        await replyError(replyToken, error.message || "ไม่สามารถอัปเดตสถานะได้");
+        return { status: "error", error: error.message };
+      }
+    }
+
     case "cmd": {
       return await handleCommand(replyToken, params[0]);
     }
@@ -458,6 +491,62 @@ async function handleCommand(
       return { status: "success", message: "Support contact sent" };
     }
 
+    case "staff_orders": {
+      const orders = await fulfillmentService.getDailyDigestOrders();
+      if (orders.length === 0) {
+        await lineClient.replyMessage(replyToken, {
+          type: "text",
+          text: "✅ ไม่มีออเดอร์ที่ต้องทำ",
+        });
+        return { status: "success", message: "No orders" };
+      }
+
+      const customers = new Map<string, CustomerDocument | null>();
+      for (const order of orders) {
+        if (order._id) {
+          const customer = await fulfillmentService.getCustomerForOrder(order);
+          customers.set(order._id.toString(), customer);
+        }
+      }
+
+      const message = buildDailyDigestMessage(orders, new Date(), customers);
+      await lineClient.replyMessage(replyToken, message);
+      return { status: "success", message: "Staff orders sent" };
+    }
+
+    case "status_blending":
+    case "status_packing":
+    case "status_shipping": {
+      const statusMap: Record<string, string> = {
+        status_blending: "blending",
+        status_packing: "packing",
+        status_shipping: "shipping",
+      };
+      const status = statusMap[command];
+      const orders = await fulfillmentService.getOrdersByStatus(status as any);
+
+      if (orders.length === 0) {
+        await lineClient.replyMessage(replyToken, {
+          type: "text",
+          text: `ไม่มีออเดอร์ในสถานะ ${getStatusLabel(status)}`,
+        });
+        return { status: "success", message: "No orders in status" };
+      }
+
+      const { buildOrderStatusCard } = require("../messages/flex-builder");
+      const bubbles = orders.map((order) => buildOrderStatusCard(order, status));
+
+      await lineClient.replyMessage(replyToken, {
+        type: "flex",
+        altText: `ออเดอร์${getStatusLabel(status)}: ${orders.length} รายการ`,
+        contents: {
+          type: "carousel",
+          contents: bubbles,
+        },
+      });
+      return { status: "success", message: `Orders in ${status} sent` };
+    }
+
     default:
       return { status: "ignored", message: `Unknown command: ${command}` };
   }
@@ -531,6 +620,20 @@ async function handleMessage(
     return { status: "success", message: "User ID sent" };
   }
 
+  if (lowerText.startsWith("onecha staff add ") || lowerText.startsWith("วันชา staff add ")) {
+    const targetUserId = text.split(" ").pop();
+    return await handleStaffAdd(userId, replyToken, context, targetUserId);
+  }
+
+  if (lowerText.startsWith("onecha staff remove ") || lowerText.startsWith("วันชา staff remove ")) {
+    const targetUserId = text.split(" ").pop();
+    return await handleStaffRemove(userId, replyToken, context, targetUserId);
+  }
+
+  if (lowerText === "onecha staff list" || lowerText === "วันชา staff list") {
+    return await handleStaffList(userId, replyToken, context);
+  }
+
   if (isMentioned) {
     if (context.isCustomerConversation) {
       const message = buildCustomerMenu();
@@ -538,13 +641,24 @@ async function handleMessage(
       return { status: "success", message: "Customer menu sent" };
     }
 
-    if (!(await isAdmin(userId)) && !context.isAdminGroup) {
-      return { status: "ignored", message: "Unauthorized" };
+    const isUserAdmin = await isAdmin(userId);
+    const isUserStaff = context.groupId
+      ? await memberRoleService.isStaffOrAdmin(context.groupId, userId)
+      : false;
+
+    if (isUserAdmin) {
+      const message = buildCommandDashboard();
+      await lineClient.replyMessage(replyToken, message);
+      return { status: "success", message: "Command dashboard sent" };
     }
 
-    const message = buildCommandDashboard();
-    await lineClient.replyMessage(replyToken, message);
-    return { status: "success", message: "Command dashboard sent" };
+    if (isUserStaff) {
+      const message = buildStaffDashboard();
+      await lineClient.replyMessage(replyToken, message);
+      return { status: "success", message: "Staff dashboard sent" };
+    }
+
+    return { status: "ignored", message: "Unauthorized" };
   }
 
   if (context.isAdminGroup) {
@@ -559,6 +673,106 @@ async function handleMessage(
     replyToken,
     text,
   );
+}
+
+async function handleStaffAdd(
+  userId: string,
+  replyToken: string,
+  context: ConversationContext,
+  targetUserId?: string,
+): Promise<WebhookHandlerResult> {
+  if (!(await isAdmin(userId))) {
+    await replyError(replyToken, "คุณไม่มีสิทธิ์จัดการเจ้าหน้าที่");
+    return { status: "error", error: "Unauthorized" };
+  }
+
+  if (!context.groupId) {
+    await replyError(replyToken, "คำสั่งนี้ใช้ได้เฉพาะในกลุ่มเท่านั้น");
+    return { status: "error", error: "Not a group chat" };
+  }
+
+  if (!targetUserId) {
+    await lineClient.replyMessage(replyToken, {
+      type: "text",
+      text: "📝 ใช้: onecha staff add [userId]\n\nดูรายชื่อสมาชิก: onecha staff list",
+    });
+    return { status: "success", message: "Usage instructions sent" };
+  }
+
+  await memberRoleService.assignRole(context.groupId, targetUserId, "staff", userId);
+
+  const profile = await lineClient.getUserProfile(targetUserId);
+  await lineClient.replyMessage(replyToken, {
+    type: "text",
+    text: `✅ ตั้ง ${profile?.displayName || targetUserId} เป็นเจ้าหน้าที่แล้ว`,
+  });
+
+  return { status: "success", message: "Staff added" };
+}
+
+async function handleStaffRemove(
+  userId: string,
+  replyToken: string,
+  context: ConversationContext,
+  targetUserId?: string,
+): Promise<WebhookHandlerResult> {
+  if (!(await isAdmin(userId))) {
+    await replyError(replyToken, "คุณไม่มีสิทธิ์จัดการเจ้าหน้าที่");
+    return { status: "error", error: "Unauthorized" };
+  }
+
+  if (!context.groupId || !targetUserId) {
+    await replyError(replyToken, "ใช้: onecha staff remove [userId]");
+    return { status: "error", error: "Invalid usage" };
+  }
+
+  await memberRoleService.removeRole(context.groupId, targetUserId);
+
+  await lineClient.replyMessage(replyToken, {
+    type: "text",
+    text: "✅ ยกเลิกสิทธิ์เจ้าหน้าที่แล้ว",
+  });
+
+  return { status: "success", message: "Staff removed" };
+}
+
+async function handleStaffList(
+  userId: string,
+  replyToken: string,
+  context: ConversationContext,
+): Promise<WebhookHandlerResult> {
+  if (!(await isAdmin(userId))) {
+    await replyError(replyToken, "คุณไม่มีสิทธิ์จัดการเจ้าหน้าที่");
+    return { status: "error", error: "Unauthorized" };
+  }
+
+  if (!context.groupId) {
+    await replyError(replyToken, "คำสั่งนี้ใช้ได้เฉพาะในกลุ่มเท่านั้น");
+    return { status: "error", error: "Not a group chat" };
+  }
+
+  await memberRoleService.syncGroupMembers(context.groupId);
+  const members = await memberRoleService.listGroupMembers(context.groupId);
+
+  if (members.length === 0) {
+    await lineClient.replyMessage(replyToken, {
+      type: "text",
+      text: "ไม่พบสมาชิกในกลุ่ม",
+    });
+    return { status: "success", message: "No members found" };
+  }
+
+  const lines = members.map((m) => {
+    const roleLabel = m.role === "admin" ? "👑 แอดมิน" : m.role === "staff" ? "👷 เจ้าหน้าที่" : "👤 สมาชิก";
+    return `${roleLabel}: ${m.displayName || m.userId}`;
+  });
+
+  await lineClient.replyMessage(replyToken, {
+    type: "text",
+    text: `📋 รายชื่อสมาชิกกลุ่ม:\n\n${lines.join("\n")}\n\nเพิ่มเจ้าหน้าที่: onecha staff add [userId]`,
+  });
+
+  return { status: "success", message: "Staff list sent" };
 }
 
 // =============================================================================
@@ -862,4 +1076,17 @@ async function handleAdminGroupRemove(
   });
 
   return { status: "success", message: "Group removed from admin" };
+}
+
+function getStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    paid: "รอดำเนินการ",
+    blending: "กำลังผสม",
+    packing: "กำลังบรรจุ",
+    shipping: "รอส่ง",
+    shipped: "ส่งแล้ว",
+    cancelled: "ยกเลิก",
+    processing: "กำลังเตรียม",
+  };
+  return labels[status] || status;
 }

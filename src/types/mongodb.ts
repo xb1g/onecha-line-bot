@@ -35,6 +35,7 @@ export interface BotStateDocument {
 }
 
 export type LineGroupRole = "admin" | "customer";
+export type MemberRole = "admin" | "staff" | "member";
 
 export interface LineGroupDocument {
   _id?: ObjectId;
@@ -45,6 +46,19 @@ export interface LineGroupDocument {
   updatedAt: Date;
 }
 
+export interface GroupMemberDocument {
+  _id?: ObjectId;
+  groupId: string;
+  userId: string;
+  displayName?: string;
+  role: MemberRole;
+  assignedBy?: string;
+  assignedAt?: Date;
+  updatedAt: Date;
+}
+
+export type OrderStatus = "pending" | "paid" | "processing" | "blending" | "packing" | "shipping" | "shipped" | "cancelled";
+
 // =============================================================================
 // Shared Types (from main Onecha app)
 // =============================================================================
@@ -53,7 +67,7 @@ export interface OrderDocument {
   _id?: ObjectId;
   customerId?: ObjectId;
   customerEmail: string;
-  status: "pending" | "paid" | "processing" | "shipped" | "cancelled";
+  status: OrderStatus;
   items: OrderItem[];
   totalAmount: number;
   shippingAddress?: ShippingAddress;

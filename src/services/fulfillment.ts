@@ -4,6 +4,7 @@ import {
   OrderDocument,
   CustomerDocument,
   WeeklyStats,
+  OrderStatus,
 } from "../types/mongodb";
 
 // =============================================================================
@@ -184,6 +185,70 @@ export class FulfillmentService {
 
     const updatedOrder = await collection.findOne({ _id: objectId });
     return updatedOrder!;
+  }
+
+  async updateOrderStatus(
+    orderId: string,
+    newStatus: string,
+    lineUserId: string,
+    note?: string
+  ): Promise<OrderDocument> {
+    const collection = await getCollection<OrderDocument>("orders");
+    const objectId = new ObjectId(orderId);
+
+    const order = await collection.findOne({ _id: objectId });
+    if (!order) {
+      throw new OrderNotFoundError(orderId);
+    }
+
+    const validTransitions: Record<string, string[]> = {
+      paid: ["blending", "packing", "shipping", "shipped", "cancelled"],
+      blending: ["packing", "shipping", "shipped", "cancelled"],
+      packing: ["shipping", "shipped", "cancelled"],
+      shipping: ["shipped", "cancelled"],
+      shipped: [],
+      cancelled: [],
+      pending: ["paid", "cancelled"],
+    };
+
+    const allowed = validTransitions[order.status] || [];
+    if (!allowed.includes(newStatus)) {
+      throw new InvalidStatusTransitionError(order.status, newStatus);
+    }
+
+    const statusHistoryEntry = {
+      status: newStatus,
+      at: new Date(),
+      by: lineUserId,
+      note: note || `Status changed to ${newStatus}`,
+    };
+
+    const update: any = {
+      $set: {
+        status: newStatus,
+        updatedAt: new Date(),
+      },
+      $push: {
+        statusHistory: statusHistoryEntry,
+      },
+    };
+
+    if (newStatus === "shipped") {
+      update.$set.shippedAt = new Date();
+    }
+
+    await collection.updateOne({ _id: objectId }, update);
+
+    const updatedOrder = await collection.findOne({ _id: objectId });
+    return updatedOrder!;
+  }
+
+  async getOrdersByStatus(status: OrderStatus): Promise<OrderDocument[]> {
+    const collection = await getCollection<OrderDocument>("orders");
+    return collection
+      .find({ status })
+      .sort({ createdAt: -1 })
+      .toArray();
   }
 
   /**

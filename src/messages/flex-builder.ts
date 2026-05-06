@@ -485,6 +485,42 @@ export function buildCommandDashboard(): FlexMessage {
   };
 }
 
+export function buildCustomerMenu(): FlexMessage {
+  return {
+    type: "flex",
+    altText: "เมนูวันชา",
+    contents: {
+      type: "bubble",
+      styles: {
+        header: { backgroundColor: COLORS.backgroundHeader },
+        body: { backgroundColor: COLORS.backgroundCard },
+      },
+      header: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          { type: "text", text: "🍵 สวัสดีครับ", size: "xl", weight: "bold", color: COLORS.primary },
+          { type: "text", text: "วันชา มัทฉะคุณภาพสูงจากญี่ปุ่น", size: "sm", color: COLORS.textLight, margin: "xs" },
+        ],
+        paddingAll: "lg",
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: [
+          { type: "text", text: "เลือกหัวข้อที่สนใจ:", size: "md", color: COLORS.text, margin: "md" },
+          createButton("💬 ขอราคา / สั่งซื้อ", "cmd:start_quote", "primary"),
+          createButton("📋 ดูเกรดมัทฉะ", "cmd:show_grades", "secondary"),
+          createButton("📦 เช็คสถานะออเดอร์", "cmd:check_order", "secondary"),
+          createButton("👤 ติดต่อเจ้าหน้าที่", "cmd:contact_support", "link"),
+        ],
+        paddingAll: "lg",
+      },
+    },
+  };
+}
+
 // =============================================================================
 // Customer Notifications
 // =============================================================================

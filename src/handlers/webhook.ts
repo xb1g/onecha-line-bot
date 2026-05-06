@@ -30,6 +30,7 @@ import {
 } from "../types/mongodb";
 import {
   buildCommandDashboard,
+  buildCustomerMenu,
   buildDailyDigestMessage,
   buildWeeklySummaryMessage,
 } from "../messages/flex-builder";
@@ -417,6 +418,46 @@ async function handleCommand(
       return { status: "success", message: "Weekly stats sent" };
     }
 
+    case "start_quote": {
+      await lineClient.replyMessage(replyToken, {
+        type: "text",
+        text: "💬 กรุณาบอกความต้องการของคุณครับ\n\nเช่น:\n• ชื่อร้าน/ที่ตั้ง\n• ปริมาณที่ต้องการ (ขั้นต่ำ 500g)\n• เกรดที่สนใจ (ceremonial, premium, cafe, culinary)",
+      });
+      return { status: "success", message: "Quote flow started" };
+    }
+
+    case "show_grades": {
+      const gradesMessage = `🍵 เกรดมัทฉะของเรา:
+
+🏆 Ceremonial - เกรดพิธีกรรม สีเขียวสด หวานมัน ไม่ขม
+⭐ Premium - เกรดพรีเมียม สมดุลรสชาติ เหมาะกับลาเต้
+☕ Cafe - เกรดคาเฟ่ รสชาติเข้มข้น คุ้มค่า
+🍳 Culinary - เกรดทำอาหาร สำหรับขนมและเบเกอรี่
+
+💡 แนะนำ: ลองชิมตัวอย่างก่อนตัดสินใจสั่ง bulk ครับ`;
+      await lineClient.replyMessage(replyToken, {
+        type: "text",
+        text: gradesMessage,
+      });
+      return { status: "success", message: "Grades info sent" };
+    }
+
+    case "check_order": {
+      await lineClient.replyMessage(replyToken, {
+        type: "text",
+        text: "📦 กรุณาระบุเลขออเดอร์หรืออีเมลที่ใช้สั่งซื้อครับ",
+      });
+      return { status: "success", message: "Order check requested" };
+    }
+
+    case "contact_support": {
+      await lineClient.replyMessage(replyToken, {
+        type: "text",
+        text: "👤 เจ้าหน้าที่จะติดต่อกลับเร็วที่สุดครับ\n\nหรือติดต่อทางไลน์: @onecha\nโทร: 092-XXXXXXX\nอีเมล: hello@onecha.co",
+      });
+      return { status: "success", message: "Support contact sent" };
+    }
+
     default:
       return { status: "ignored", message: `Unknown command: ${command}` };
   }
@@ -492,18 +533,15 @@ async function handleMessage(
 
   if (isMentioned) {
     if (context.isCustomerConversation) {
-      return await handleCustomerConversation(
-        context.conversationId,
-        replyToken,
-        text,
-      );
+      const message = buildCustomerMenu();
+      await lineClient.replyMessage(replyToken, message);
+      return { status: "success", message: "Customer menu sent" };
     }
 
     if (!(await isAdmin(userId)) && !context.isAdminGroup) {
       return { status: "ignored", message: "Unauthorized" };
     }
 
-    // Show command dashboard
     const message = buildCommandDashboard();
     await lineClient.replyMessage(replyToken, message);
     return { status: "success", message: "Command dashboard sent" };

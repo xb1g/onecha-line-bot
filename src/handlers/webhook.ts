@@ -62,8 +62,9 @@ const ADMIN_USER_IDS = (process.env.LINE_ADMIN_USER_IDS || "")
   .filter(Boolean);
 
 async function isAdmin(userId: string): Promise<boolean> {
-  // Check environment variables first
-  if (ADMIN_USER_IDS.includes(userId)) {
+  // Check environment variables first (case-insensitive comparison for safety)
+  const normalizedUserId = userId.toLowerCase();
+  if (ADMIN_USER_IDS.some(id => id.toLowerCase() === normalizedUserId)) {
     return true;
   }
 
@@ -146,8 +147,10 @@ async function handlePostback(
     ? await memberRoleService.isStaffOrAdmin(context.groupId, userId)
     : false;
 
-  if (!context.isAdminGroup && !isUserAdmin && !isUserStaff) {
-    await replyError(replyToken, "คุณไม่มีสิทธิ์เข้าถึงระบบ");
+  // Allow access if: in admin group, admin ID in env var, admin session, or staff
+  const hasAccess = context.isAdminGroup || isUserAdmin || isUserStaff;
+  if (!hasAccess) {
+    await replyError(replyToken, "คุณไม่มีสิทธิ์เข้าถึงระบบ\n(ติดต่อแอดมินเพื่อขอสิทธิ์)");
     return { status: "error", error: "Unauthorized" };
   }
 
@@ -946,7 +949,7 @@ async function handleAdminLogin(
   if (!adminPassword) {
     await lineClient.replyMessage(replyToken, {
       type: "text",
-      text: "❌ ระบบแอดมินไม่ได้เปิดใช้งาน",
+      text: "❌ ระบบแอดมินไม่ได้เปิดใช้งาน\n\nกรุณาตั้งค่า LINE_ADMIN_PASSWORD",
     });
     return { status: "error", error: "Admin password not configured" };
   }
@@ -958,6 +961,17 @@ async function handleAdminLogin(
       text: "✅ คุณมีสิทธิ์แอดมินอยู่แล้ว\n\nพิมพ์ 'วันชา' เพื่อเปิดเมนู",
     });
     return { status: "success", message: "User already has admin session" };
+  }
+
+  // Check if user is in LINE_ADMIN_USER_IDS (bypass password)
+  const isEnvAdmin = ADMIN_USER_IDS.some(id => id.toLowerCase() === userId.toLowerCase());
+  if (isEnvAdmin) {
+    await createAdminSession(userId);
+    await lineClient.replyMessage(replyToken, {
+      type: "text",
+      text: "✅ เข้าสู่ระบบแอดมินสำเร็จ!\n\nพิมพ์ 'วันชา' เพื่อเปิดเมนู",
+    });
+    return { status: "success", message: "Admin login via env var" };
   }
 
   // Set user as awaiting password input
@@ -986,13 +1000,13 @@ async function handleAdminPasswordInput(
     await clearAdminLoginState(userId);
     await lineClient.replyMessage(replyToken, {
       type: "text",
-      text: "❌ ระบบแอดมินไม่ได้เปิดใช้งาน",
+      text: "❌ ระบบแอดมินไม่ได้เปิดใช้งาน\n\nกรุณาตั้งค่า LINE_ADMIN_PASSWORD",
     });
     return { status: "error", error: "Admin password not configured" };
   }
 
-  // Verify password
-  if (password.trim() === adminPassword) {
+  // Verify password (case-sensitive match)
+  if (password === adminPassword) {
     // Create admin session
     await createAdminSession(userId);
     await clearAdminLoginState(userId);
@@ -1008,7 +1022,7 @@ async function handleAdminPasswordInput(
 
     await lineClient.replyMessage(replyToken, {
       type: "text",
-      text: "❌ รหัสผ่านไม่ถูกต้อง\n\nกรุณาลองใหม่อีกครั้ง",
+      text: "❌ รหัสผ่านไม่ถูกต้อง\n\nใช้คำสั่ง 'วันชา admin login' เพื่อลองใหม่",
     });
 
     return { status: "error", error: "Invalid password" };

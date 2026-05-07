@@ -768,15 +768,17 @@ function createButton(label: string, postData: string, style: "primary" | "secon
   const bgColors = {
     primary: COLORS.primary,
     secondary: "#444444",
-    link: "transparent",
   };
-  return {
+  const button: FlexButton = {
     type: "button",
     action: { type: "postback", label, data: postData },
     style: style === "link" ? "link" : "primary",
-    color: bgColors[style],
     height: "sm",
   };
+  if (style !== "link") {
+    button.color = bgColors[style];
+  }
+  return button;
 }
 
 function createStatColumn(value: string, label: string, color = COLORS.text): FlexBox {

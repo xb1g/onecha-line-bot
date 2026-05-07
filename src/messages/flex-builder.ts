@@ -810,3 +810,53 @@ function formatDateThai(date: Date): string {
   const months = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
   return `${days[date.getDay()]} ${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear() + 543}`;
 }
+
+// =============================================================================
+// CLI-style Help Builder
+// =============================================================================
+
+const ADMIN_COMMANDS = [
+  { cmd: "วันชา หรือ onecha", desc: "เปิดเมนูหลัก" },
+  { cmd: "วันชา help", desc: "แสดงรายการคำสั่งทั้งหมด" },
+  { cmd: "วันชา whoami", desc: "ดู LINE ID ของคุณ" },
+  { cmd: "วันชา admin login", desc: "เข้าสู่ระบบแอดมิน" },
+  { cmd: "วันชา admin group add", desc: "เพิ่มกลุ่มปัจจุบันเป็นกลุ่มแอดมิน" },
+  { cmd: "วันชา admin group remove", desc: "ลบกลุ่มปัจจุบันจากกลุ่มแอดมิน" },
+  { cmd: "วันชา staff add <userId>", desc: "เพิ่มพนักงาน" },
+  { cmd: "วันชา staff remove <userId>", desc: "ลบพนักงาน" },
+];
+
+const MENU_COMMANDS = [
+  { cmd: "📋 ออเดอร์วันนี้", desc: "ดูออเดอร์วันนี้" },
+  { cmd: "📦 กำลังเตรียมสินค้า", desc: "ดูออเดอร์ที่กำลังเตรียม" },
+  { cmd: "🚚 รอจัดส่ง", desc: "ดูออเดอร์ที่รอส่ง" },
+  { cmd: "📊 สรุปสัปดาห์", desc: "ดูสรุปสถิติประจำสัปดาห์" },
+];
+
+export function buildHelpMessage(isAdmin: boolean, isStaff: boolean): string {
+  const lines = [
+    "🍵 วันชา CLI Help",
+    "━━━━━━━━━━━━━━━━━━━━",
+    "",
+    "📌 คำสั่งทั่วไป:",
+    ...ADMIN_COMMANDS.map(c => `  ${c.cmd.padEnd(28)} ${c.desc}`),
+  ];
+
+  if (isAdmin || isStaff) {
+    lines.push("");
+    lines.push("📌 คำสั่งเมนู:");
+    lines.push(...MENU_COMMANDS.map(c => `  ${c.cmd.padEnd(28)} ${c.desc}`));
+  }
+
+  if (isAdmin) {
+    lines.push("");
+    lines.push("📌 คำสั่งติดตามพัสดุ:");
+    lines.push("  กรอกเลขพัสดุ (13ตัว)    ติดตามพัสดุ Kerry/J&T");
+    lines.push("  พิมพ์ cancel            ยกเลิกการกรอกเลข");
+  }
+
+  lines.push("");
+  lines.push("💡 พิมพ์ วันชา หรือ onecha เพื่อเปิดเมนู");
+
+  return lines.join("\n");
+}

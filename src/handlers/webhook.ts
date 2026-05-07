@@ -40,6 +40,7 @@ import {
   buildCommandDashboard,
   buildCustomerMenu,
   buildStaffDashboard,
+  buildHelpMessage,
   buildDailyDigestMessage,
   buildWeeklySummaryMessage,
 } from "../messages/flex-builder";
@@ -666,6 +667,16 @@ async function handleMessage(
 
   if (lowerText === "onecha staff list" || lowerText === "วันชา staff list") {
     return await handleStaffList(userId, replyToken, context);
+  }
+
+  if (lowerText === "onecha help" || lowerText === "วันชา help" || lowerText === "onecha -h" || lowerText === "วันชา -h") {
+    const isUserAdmin = await isAdmin(userId);
+    const isUserStaff = context.groupId
+      ? await memberRoleService.isStaffOrAdmin(context.groupId, userId)
+      : false;
+    const helpMessage = buildHelpMessage(isUserAdmin, isUserStaff);
+    await lineClient.replyMessage(replyToken, { type: "text", text: helpMessage });
+    return { status: "success", message: "Help sent" };
   }
 
   if (isMentioned) {

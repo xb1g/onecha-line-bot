@@ -683,46 +683,32 @@ async function handleMessage(
   }
 
   if (isMentioned) {
-    if (context.isCustomerConversation) {
-      const message = buildCustomerMenu();
-      await lineClient.replyMessage(replyToken, message);
-      return { status: "success", message: "Customer menu sent" };
-    }
-
     const isUserAdmin = await isAdmin(userId);
     const isUserStaff = context.groupId
       ? await memberRoleService.isStaffOrAdmin(context.groupId, userId)
       : false;
 
-    let menuMessage: any;
+    // Check admin/staff status FIRST, before customer conversation check
     if (isUserAdmin) {
-      menuMessage = buildCommandDashboard();
-    } else if (isUserStaff) {
-      menuMessage = buildStaffDashboard();
+      const message = buildCommandDashboard();
+      await lineClient.replyMessage(replyToken, message);
+      return { status: "success", message: "Admin menu sent" };
+    }
+
+    if (isUserStaff) {
+      const message = buildStaffDashboard();
+      await lineClient.replyMessage(replyToken, message);
+      return { status: "success", message: "Staff menu sent" };
+    }
+
+    // Only show customer menu if not admin/staff
+    if (context.isCustomerConversation) {
+      const message = buildCustomerMenu();
+      await lineClient.replyMessage(replyToken, message);
+      return { status: "success", message: "Customer menu sent" };
     } else {
       return { status: "ignored", message: "Unauthorized" };
     }
-
-    const chatId = context.groupId || userId;
-    const isGroup = !!context.groupId;
-
-    if (isGroup) {
-      const recent = await wasMenuSentRecently(userId, chatId);
-      if (recent) {
-        return { status: "ignored", message: "Menu cooldown active" };
-      }
-
-      const dmSent = await lineClient.tryPushMessage(userId, menuMessage);
-      if (dmSent) {
-        await setCanReceiveDM(userId, true);
-        return { status: "success", message: "Menu sent via DM" };
-      }
-
-      await trackMenuSent(userId, chatId);
-    }
-
-    await lineClient.replyMessage(replyToken, menuMessage);
-    return { status: "success", message: "Menu sent" };
   }
 
   if (context.isAdminGroup) {

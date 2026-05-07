@@ -255,7 +255,7 @@ export function buildDailyDigestMessage(
       contents: [
         { type: "text", text: "☕ สวัสดีตอนเช้า!", size: "xl", weight: "bold", color: COLORS.primary },
         { type: "text", text: formatDateThai(date), size: "sm", color: COLORS.textLight, margin: "xs" },
-        { type: "separator", margin: "md", color: COLORS.border },
+        { type: "separator", margin: "md" },
         {
           type: "box",
           layout: "horizontal",
@@ -298,7 +298,7 @@ function buildNoOrdersMessage(date: Date): FlexMessage {
         contents: [
           { type: "text", text: "☕ สวัสดีตอนเช้า!", size: "xl", weight: "bold", color: COLORS.primary, align: "center" },
           { type: "text", text: formatDateThai(date), size: "sm", color: COLORS.textLight, align: "center", margin: "xs" },
-          { type: "separator", margin: "lg", color: COLORS.border },
+          { type: "separator", margin: "lg" },
           { type: "text", text: "ไม่มีออเดอร์ที่ต้องเตรียมวันนี้ 🍵", size: "lg", color: COLORS.secondary, align: "center", margin: "xl" },
         ],
         paddingAll: "xl",
@@ -420,9 +420,9 @@ export function buildWeeklySummaryMessage(stats: WeeklyStats): FlexMessage {
         layout: "vertical",
         contents: [
           createStatRow("📦 ส่งแล้ว", `${stats.ordersShipped} รายการ`),
-          { type: "separator", margin: "md", color: COLORS.border },
+          { type: "separator", margin: "md" },
           createStatRow("⏱️ เวลาเฉลี่ย", `${stats.avgTimeToShip.toFixed(1)} วัน`),
-          { type: "separator", margin: "md", color: COLORS.border },
+          { type: "separator", margin: "md" },
           createStatRow("⚠️ รอนาน", `${stats.stuckOrders} รายการ`, stats.stuckOrders > 0 ? COLORS.danger : COLORS.primary),
         ],
         paddingAll: "lg",
@@ -476,7 +476,7 @@ export function buildCommandDashboard(): FlexMessage {
           createButton("📋 ออเดอร์วันนี้", "cmd:today_orders", "primary"),
           createButton("📦 กำลังเตรียมสินค้า", "cmd:processing_orders", "secondary"),
           createButton("🚚 รอจัดส่ง", "cmd:pending_shipments", "secondary"),
-          { type: "separator", margin: "md", color: COLORS.border },
+          { type: "separator", margin: "md" },
           createButton("📊 สรุปสัปดาห์", "cmd:weekly_stats", "link"),
         ],
         paddingAll: "lg",
@@ -651,7 +651,7 @@ export function buildCustomerShippingNotification(
         layout: "vertical",
         contents: [
           { type: "text", text: "ออเดอร์ของคุณถูกจัดส่งแล้ว!", size: "md", color: COLORS.text, margin: "sm" },
-          { type: "separator", margin: "md", color: COLORS.border },
+          { type: "separator", margin: "md" },
           createField("ขนส่ง", carrierName),
           createField("เลขพัสดุ", order.trackingNumber || ""),
           {
@@ -690,7 +690,7 @@ export function buildCustomerOrderAcceptedMessage(order: OrderDocument): FlexMes
         contents: [
           { type: "text", text: "📦 อัปเดตออเดอร์", size: "xl", weight: "bold", color: COLORS.primary },
           { type: "text", text: "ออเดอร์ #" + orderId, size: "sm", color: COLORS.textLight, margin: "xs" },
-          { type: "separator", margin: "md", color: COLORS.border },
+          { type: "separator", margin: "md" },
           { type: "text", text: "ออเดอร์ของคุณกำลังถูกเตรียมโดยทีมของเรา! 🍵", size: "md", color: COLORS.text, margin: "md" },
           { type: "text", text: "เราจะแจ้งให้ทราบเมื่อจัดส่งแล้ว", size: "sm", color: COLORS.textLight },
         ],
@@ -714,7 +714,7 @@ export function buildCustomerOrderConfirmedMessage(order: OrderDocument): FlexMe
         contents: [
           { type: "text", text: "🍵 ได้รับออเดอร์แล้ว!", size: "xl", weight: "bold", color: COLORS.primary },
           { type: "text", text: "ออเดอร์ #" + orderId, size: "sm", color: COLORS.textLight, margin: "xs" },
-          { type: "separator", margin: "md", color: COLORS.border },
+          { type: "separator", margin: "md" },
           { type: "text", text: "ยอดรวม: " + formatOrderAmount(order.totalAmount), size: "lg", weight: "bold", color: COLORS.text, margin: "md" },
           { type: "text", text: "เราจะแจ้งเมื่อได้รับการยืนยันการชำระเงิน", size: "sm", color: COLORS.textLight },
         ],
@@ -738,7 +738,7 @@ export function buildCustomerPaymentVerifiedMessage(order: OrderDocument): FlexM
         contents: [
           { type: "text", text: "✅ ยืนยันการชำระเงินแล้ว!", size: "xl", weight: "bold", color: COLORS.primary },
           { type: "text", text: "ออเดอร์ #" + orderId, size: "sm", color: COLORS.textLight, margin: "xs" },
-          { type: "separator", margin: "md", color: COLORS.border },
+          { type: "separator", margin: "md" },
           { type: "text", text: "มาต๋าของคุณกำลังถูกเตรียมอย่างพิถีพิถัน! 🍵", size: "md", color: COLORS.text, margin: "md" },
           { type: "text", text: "เราจะแจ้งให้ทราบเมื่อจัดส่ง", size: "sm", color: COLORS.textLight },
         ],

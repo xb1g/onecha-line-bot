@@ -947,19 +947,13 @@ async function handleAdminLogin(
   const adminPassword = process.env.LINE_ADMIN_PASSWORD;
 
   if (!adminPassword) {
-    await lineClient.replyMessage(replyToken, {
-      type: "text",
-      text: "❌ ระบบแอดมินไม่ได้เปิดใช้งาน\n\nกรุณาตั้งค่า LINE_ADMIN_PASSWORD",
-    });
+    await lineClient.sendTextMessage(userId, "❌ ระบบแอดมินไม่ได้เปิดใช้งาน\n\nกรุณาตั้งค่า LINE_ADMIN_PASSWORD");
     return { status: "error", error: "Admin password not configured" };
   }
 
   // Check if user already has admin session
   if (await hasAdminSession(userId)) {
-    await lineClient.replyMessage(replyToken, {
-      type: "text",
-      text: "✅ คุณมีสิทธิ์แอดมินอยู่แล้ว\n\nพิมพ์ 'วันชา' เพื่อเปิดเมนู",
-    });
+    await lineClient.sendTextMessage(userId, "✅ คุณมีสิทธิ์แอดมินอยู่แล้ว\n\nพิมพ์ 'วันชา' เพื่อเปิดเมนู");
     return { status: "success", message: "User already has admin session" };
   }
 
@@ -967,20 +961,14 @@ async function handleAdminLogin(
   const isEnvAdmin = ADMIN_USER_IDS.some(id => id.toLowerCase() === userId.toLowerCase());
   if (isEnvAdmin) {
     await createAdminSession(userId);
-    await lineClient.replyMessage(replyToken, {
-      type: "text",
-      text: "✅ เข้าสู่ระบบแอดมินสำเร็จ!\n\nพิมพ์ 'วันชา' เพื่อเปิดเมนู",
-    });
+    await lineClient.sendTextMessage(userId, "✅ เข้าสู่ระบบแอดมินสำเร็จ!\n\nพิมพ์ 'วันชา' เพื่อเปิดเมนู");
     return { status: "success", message: "Admin login via env var" };
   }
 
   // Set user as awaiting password input
   await setAwaitingAdminPassword(userId);
 
-  await lineClient.replyMessage(replyToken, {
-    type: "text",
-    text: "🔐 กรุณากรอกรหัสผ่านแอดมิน:",
-  });
+  await lineClient.sendTextMessage(userId, "🔐 กรุณากรอกรหัสผ่านแอดมิน:");
 
   return { status: "success", message: "Password requested" };
 }
@@ -998,10 +986,7 @@ async function handleAdminPasswordInput(
 
   if (!adminPassword) {
     await clearAdminLoginState(userId);
-    await lineClient.replyMessage(replyToken, {
-      type: "text",
-      text: "❌ ระบบแอดมินไม่ได้เปิดใช้งาน\n\nกรุณาตั้งค่า LINE_ADMIN_PASSWORD",
-    });
+    await lineClient.sendTextMessage(userId, "❌ ระบบแอดมินไม่ได้เปิดใช้งาน\n\nกรุณาตั้งค่า LINE_ADMIN_PASSWORD");
     return { status: "error", error: "Admin password not configured" };
   }
 
@@ -1011,19 +996,13 @@ async function handleAdminPasswordInput(
     await createAdminSession(userId);
     await clearAdminLoginState(userId);
 
-    await lineClient.replyMessage(replyToken, {
-      type: "text",
-      text: "✅ เข้าสู่ระบบแอดมินสำเร็จ!\n\nพิมพ์ 'วันชา' เพื่อเปิดเมนู",
-    });
+    await lineClient.sendTextMessage(userId, "✅ เข้าสู่ระบบแอดมินสำเร็จ!\n\nพิมพ์ 'วันชา' เพื่อเปิดเมนู");
 
     return { status: "success", message: "Admin login successful" };
   } else {
     await clearAdminLoginState(userId);
 
-    await lineClient.replyMessage(replyToken, {
-      type: "text",
-      text: "❌ รหัสผ่านไม่ถูกต้อง\n\nใช้คำสั่ง 'วันชา admin login' เพื่อลองใหม่",
-    });
+    await lineClient.sendTextMessage(userId, "❌ รหัสผ่านไม่ถูกต้อง\n\nใช้คำสั่ง 'วันชา admin login' เพื่อลองใหม่");
 
     return { status: "error", error: "Invalid password" };
   }
